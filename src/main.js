@@ -1,26 +1,110 @@
 // file: src/main.js
-// ... (imports)
-import { initSculpting, initTapToMove, initTapToPaint } from './sculpt.js'; // Add initTapToPaint
+import * as THREE from 'three';
+import { showErrorOverlay } from './utils.js';
+import { initCamera, updateCameraBounds } from './camera.js';
+import { initLighting } from './lighting.js';
+import { initSky, updateSky } from './sky.js';
+import { createTerrain } from './terrain.js';
+import { initSculpting, initTapToMove, initTapToPaint } from './sculpt.js';
 import { initUI, getUiState } from './ui.js';
-// ... (other imports)
+import initNavLock from './navlock.js';
 
 async function startApp() {
-    // ... (appState setup is the same)
+    console.log('THREE revision:', THREE.REVISION);
 
-    // ... (Renderer / Scene / Initialization is the same)
+    // ---- Global App State ----
+    const appState = {
+        renderer: null,
+        scene: null,
+        camera: null,
+        controls: null,
+        dirLight: null,
+        lightTarget: null,
+        terrainGroup: null,
+        terrainMesh: null,
+        treesGroup: null,
+        ball: null,
+        camFollowEnabled: true,
+        config: {
+            TILES_X: 30, TILES_Y: 30, TILE_SIZE: 32,
+            MIN_H: -200, MAX_H: 300,
+            CHAR_HEIGHT_UNITS: 32 * 1.0,
+            TREE_MIN_RATIO: 10 / 6,
+            TREE_MAX_RATIO: 15 / 6,
+        }
+    };
+
+    // ---- Renderer / Scene ----
+    const canvas = document.getElementById('c');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.shadowMap.enabled = true;
+    appState.renderer = renderer;
+
+    const scene = new THREE.Scene();
+    scene.background = null;
+    appState.scene = scene;
+
+    // ---- Initialization ----
+    const { camera, controls } = initCamera(renderer);
+    appState.camera = camera;
+    appState.controls = controls;
+
+    const { dirLight, lightTarget } = initLighting(scene);
+    appState.dirLight = dirLight;
+    appState.lightTarget = lightTarget;
+
+    initSky(scene, renderer);
+    createTerrain(appState);
+    updateCameraBounds(appState);
+    updateSky(appState, new THREE.Vector3());
 
     // ---- UI and Controls ----
     let allowTapMove = true;
     initUI(appState);
     initSculpting(appState, getUiState);
-    
-    // MODIFIED: Pass getUiState to tap-to-move
     initTapToMove(appState, getUiState, () => allowTapMove);
-    
-    // NEW: Initialize tap-to-paint
     initTapToPaint(appState, getUiState);
 
-    // ... (NavLock / Resize / Animation Loop are the same)
+    // ---- NavLock ----
+    try {
+        initNavLock({ zIndex: 10000, offset: 10 });
+        window.addEventListener('tc:navlock', (e) => {
+            allowTapMove = !(e?.detail?.paused);
+        });
+    } catch (_) {}
+
+    // ---- Resize ----
+    window.addEventListener('resize', () => {
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        updateCameraBounds(appState);
+        updateSky(appState);
+    });
+
+    // ---- Animation Loop ----
+    renderer.setAnimationLoop(() => {
+        if (appState.camFollowEnabled && appState.ball?.mesh) {
+            controls.lookAt(appState.ball.mesh.position);
+        }
+        controls.update();
+        renderer.render(scene, camera);
+    });
 }
 
-// ... (Error Handling & Boot is the same)
+// ---- Error Handling & Boot ----
+window.addEventListener('error', (e) => showErrorOverlay('Window error', e.error || e));
+window.addEventListener('unhandledrejection', (e) => showErrorOverlay('Unhandled promise rejection', e.reason));
+
+(async () => {
+    try {
+        startApp();
+    } catch (e) {
+        showErrorOverlay('Failed to start application.', e);
+        throw e;
+    }
+})();
