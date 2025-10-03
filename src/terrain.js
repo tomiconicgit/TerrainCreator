@@ -5,10 +5,8 @@ import BallMarker from './character.js';
 
 let edgesHelper = null;
 
-// --- NEW: Subdivisions Per Tile ---
-// This number controls the vertex density. 10 means each tile is a 10x10 grid of smaller quads.
-// Higher numbers = smoother terrain, but lower performance. 10 is a good starting point.
-const SUBDIVISIONS = 10;
+// --- UPDATED: Subdivisions set to 4 ---
+const SUBDIVISIONS = 4;
 
 const vertexShader = `
   varying vec2 vUv;
@@ -60,8 +58,7 @@ export function createTerrain(appState) {
     dispose(appState.terrainGroup);
     dispose(appState.treesGroup);
     appState.treesGroup = null;
-
-    // --- UPDATED: Create a high-resolution geometry ---
+    
     const widthSegments = TILES_X * SUBDIVISIONS;
     const heightSegments = TILES_Y * SUBDIVISIONS;
     const geom = new THREE.PlaneGeometry(W, H, widthSegments, heightSegments);
@@ -130,11 +127,11 @@ export function createTerrain(appState) {
       tileI: Math.floor(TILES_X / 3),
       tileJ: Math.floor(TILES_Y / 3),
       radius: ballRadius,
-      color: 0xff2b2b
+      color: 0xff2b2b,
+      config: appState.config, 
     });
 }
 
-// --- UPDATED: Painting logic now works on the high-resolution grid ---
 export function paintTextureOnTile(ci, cj, texture, radius, appState) {
     const { terrainMesh, config } = appState;
     if (!terrainMesh) return;
@@ -142,19 +139,18 @@ export function paintTextureOnTile(ci, cj, texture, radius, appState) {
     const paintValue = (texture === 'leaves') ? 1.0 : 0.0;
     const colorAttr = terrainMesh.geometry.attributes.color;
     
-    // Total number of vertices across the width of the entire terrain
-    const totalVertsX = config.TILES_X * SUBDIVISIONS + 1;
+    const actualSubdivisions = terrainMesh.geometry.parameters.widthSegments / config.TILES_X;
+    const totalVertsX = config.TILES_X * actualSubdivisions + 1;
 
     for (let j = cj - radius; j <= cj + radius; j++) {
         for (let i = ci - radius; i <= ci + radius; i++) {
             if (i >= 0 && i < config.TILES_X && j >= 0 && j < config.TILES_Y) {
                 const dist = Math.hypot(i - ci, j - cj);
                 if (dist <= radius) {
-                    // Now, loop through all the sub-vertices INSIDE this one tile
-                    for (let subJ = 0; subJ <= SUBDIVISIONS; subJ++) {
-                        for (let subI = 0; subI <= SUBDIVISIONS; subI++) {
-                            const vertX = i * SUBDIVISIONS + subI;
-                            const vertY = j * SUBDIVISIONS + subJ;
+                    for (let subJ = 0; subJ <= actualSubdivisions; subJ++) {
+                        for (let subI = 0; subI <= actualSubdivisions; subI++) {
+                            const vertX = i * actualSubdivisions + subI;
+                            const vertY = j * actualSubdivisions + subJ;
                             const vertIndex = vertY * totalVertsX + vertX;
                             
                             colorAttr.setX(vertIndex, paintValue);
@@ -179,21 +175,19 @@ export function randomizeTerrain(appState) {
     if (appState.ball) appState.ball.refresh();
 }
 
-// --- UPDATED: Heightmap logic now works on the high-resolution grid ---
 export function applyHeightmapTemplate(name, appState) {
     if (!appState.terrainMesh) return;
     const { terrainMesh, ball } = appState;
     
-    // Get the actual segment counts from the generated geometry
     const { widthSegments, heightSegments } = terrainMesh.geometry.parameters;
 
     const pos = terrainMesh.geometry.attributes.position.array;
     const minH = -80, maxH = 120, range = maxH - minH;
     let idx = 1;
     for (let jy = 0; jy <= heightSegments; jy++) {
-        const v = jy / heightSegments; // Use actual segments for correct UV mapping
+        const v = jy / heightSegments;
         for (let ix = 0; ix <= widthSegments; ix++) {
-            const u = ix / widthSegments; // Use actual segments for correct UV mapping
+            const u = ix / widthSegments;
             let n = 0;
             switch (name) {
                 case 'Flat': n = -1; break;
@@ -212,11 +206,10 @@ export function applyHeightmapTemplate(name, appState) {
     }
     terrainMesh.geometry.attributes.position.needsUpdate = true;
     terrainMesh.geometry.computeVertexNormals();
-    rebuildEdges(appState.terrainGroup, terrainMesh);
+    rebuildEdges(appState.terrainGroup, appState.terrainMesh);
     if (ball) ball.refresh();
 }
 
-// Noise functions (unchanged)
 const _clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const _smooth = (t) => t * t * (3 - 2 * t);
 const _perm = new Uint8Array(512);
