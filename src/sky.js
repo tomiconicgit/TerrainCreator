@@ -3,13 +3,6 @@
 // Tries local addon first at src/vendor/three.sky.js, then other local fallbacks, then CDN.
 
 export class SkySystem {
-  /**
-   * @param {object} THREE - the Three namespace you already loaded
-   * @param {object|null} SkyClass - optional Sky class
-   * @param {THREE.Scene} scene
-   * @param {THREE.WebGLRenderer} renderer
-   * @param {THREE.DirectionalLight} dirLight
-   */
   constructor(THREE, SkyClass, scene, renderer, dirLight) {
     this.THREE = THREE;
     this.scene = scene;
@@ -25,18 +18,18 @@ export class SkySystem {
     this.pmremGen.compileEquirectangularShader();
     this.envRT = null;
 
-    this.sky = null;        // set by load()
-    this.uniforms = null;   // set if using the real Sky addon
+    this.sky = null;
+    this.uniforms = null;
 
-    // Brighter daytime defaults
+    // Brighter/clearer defaults, low sun so disk is visible
     this.params = {
-      turbidity: 10,
-      rayleigh: 1.2,
-      mieCoefficient: 0.003,
+      turbidity: 2.5,
+      rayleigh: 2.0,
+      mieCoefficient: 0.004,
       mieDirectionalG: 0.8,
-      elevation: 55,
-      azimuth: 130,
-      exposure: 0.9
+      elevation: 10,
+      azimuth: 180,
+      exposure: 1.1
     };
 
     this._loaded = false;
@@ -52,12 +45,10 @@ export class SkySystem {
 
   async load() {
     let SkyClass = this._SkyClass;
-
     if (!SkyClass) {
-      // Priority: src/vendor/three.sky.js
       SkyClass = await this._tryImport([
-        './vendor/three.sky.js',                 // <repo>/src/vendor/three.sky.js (preferred)
-        '../src/vendor/three.sky.js',            // fallback variants
+        './vendor/three.sky.js',
+        '../src/vendor/three.sky.js',
         '../vendor/three.sky.js',
         '../vendor/examples/jsm/objects/Sky.js',
         'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/objects/Sky.js'
@@ -70,7 +61,6 @@ export class SkySystem {
       this.scene.add(this.sky);
       this.uniforms = this.sky.material?.uniforms || null;
     } else {
-      // Minimal gradient fallback
       const THREE = this.THREE;
       const geo = new THREE.SphereGeometry(1, 32, 16);
       const mat = new THREE.ShaderMaterial({
@@ -111,21 +101,17 @@ export class SkySystem {
     this._loaded = true;
   }
 
-  /**
-   * Fits the sky dome to `worldSpanUnits` and positions light towards `focus`.
-   */
   update(worldSpanUnits = 100, focus) {
     if (!this._loaded) return;
 
     const THREE = this.THREE;
     const p = this.params;
 
-    // Compute sun vector from params
+    // Sun vector from elevation/azimuth
     const phi = THREE.MathUtils.degToRad(90 - p.elevation);
     const theta = THREE.MathUtils.degToRad(p.azimuth);
     this.sun.setFromSphericalCoords(1, phi, theta);
 
-    // Apply shader uniforms if real Sky is used
     if (this.uniforms) {
       const u = this.uniforms;
       u['turbidity'].value = p.turbidity;
@@ -137,18 +123,28 @@ export class SkySystem {
 
     const size = Math.max(100, worldSpanUnits);
     this.sky.scale.setScalar(size);
+
     this.renderer.toneMappingExposure = p.exposure;
 
-    // Build environment map from a temporary scene containing only the sky
+    // Build env map from a CLONE so we don't reparent the real sky
     if (this.uniforms) {
       if (this.envRT) this.envRT.dispose();
+
       const tmp = new THREE.Scene();
-      tmp.add(this.sky);
+      const skyForEnv = this.sky.clone();
+      skyForEnv.material = this.sky.material.clone();
+      skyForEnv.scale.copy(this.sky.scale);
+
+      tmp.add(skyForEnv);
       this.envRT = this.pmremGen.fromScene(tmp);
       this.scene.environment = this.envRT.texture;
+
+      // clean temp objects
+      skyForEnv.geometry.dispose();
+      skyForEnv.material.dispose();
     }
 
-    // Aim sun light and fit its shadow camera
+    // Light position/target and shadow fit
     const lightDist = Math.max(150, size * 1.5);
     this.dirLight.position.copy(this.sun).multiplyScalar(lightDist);
     this.lightTarget.position.copy(focus || new THREE.Vector3());
