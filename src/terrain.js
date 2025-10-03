@@ -155,7 +155,7 @@ export function createTerrain(appState) {
         return texture;
     };
     
-    const leavesDiffuse = loadTexture('./assets/textures/leaves-diffuse.jpg');
+    const leavesDiffuse = loadTexture('./src/assets/textures/leaves-diffuse.jpg'); // PATH CORRECTED
     leavesDiffuse.colorSpace = THREE.SRGBColorSpace; // Set color space for the diffuse map
 
     const terrainMaterial = new THREE.ShaderMaterial({
@@ -164,9 +164,9 @@ export function createTerrain(appState) {
           uGrassDiffuse: { value: createPlaceholderTexture('#559040') },
           uSandDiffuse: { value: createPlaceholderTexture('#dacfa0') },
           uLeavesDiffuse: { value: leavesDiffuse },
-          uLeavesNormal: { value: loadTexture('./assets/textures/leaves-normal.png') },
-          uLeavesRoughness: { value: loadTexture('./assets/textures/leaves-roughness.jpg') },
-          uLeavesDisplacement: { value: loadTexture('./assets/textures/displacement.png') }, // FILENAME CORRECTED
+          uLeavesNormal: { value: loadTexture('./src/assets/textures/leaves-normal.png') }, // PATH CORRECTED
+          uLeavesRoughness: { value: loadTexture('./src/assets/textures/leaves-roughness.jpg') }, // PATH CORRECTED
+          uLeavesDisplacement: { value: loadTexture('./src/assets/textures/displacement.png') }, // PATH CORRECTED
           uDisplacementScale: { value: 10.0 }, // How high the leaves "pop out". Adjust this value!
           // Lighting uniforms
           uSunDirection: { value: new THREE.Vector3(0.707, 0.707, 0) },
