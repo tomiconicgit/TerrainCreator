@@ -20,18 +20,22 @@ const DEFAULT_TEXTURE = 'grass';
 const vertexShader = `
   varying vec2 vUv;
   varying vec3 vColor;
-  varying vec3 vNormal;
+  varying vec3 vWorldNormal; // Changed from vNormal
   varying vec3 vWorldPosition;
   varying mat3 vTBN;
 
   void main() {
     vUv = uv;
     vColor = color;
-    vNormal = normalize(normalMatrix * normal);
-    vWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+    
+    vec3 worldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+    vWorldPosition = worldPosition;
 
-    // For Normal Mapping
+    // --- CORRECTION: Pass world-space vectors to fragment shader ---
     vec3 worldNormal = normalize(vec3(modelMatrix * vec4(normal, 0.0)));
+    vWorldNormal = worldNormal;
+    
+    // For Normal Mapping
     vec3 worldTangent = normalize(vec3(modelMatrix * vec4(tangent.xyz, 0.0)));
     vec3 worldBitangent = cross(worldNormal, worldTangent) * tangent.w;
     vTBN = mat3(worldTangent, worldBitangent, worldNormal);
@@ -53,7 +57,7 @@ const fragmentShader = `
 
   varying vec2 vUv;
   varying vec3 vColor; // Blend weights (R: leaves, G: grass, B: sand)
-  varying vec3 vNormal;
+  varying vec3 vWorldNormal; // Changed from vNormal
   varying vec3 vWorldPosition;
   varying mat3 vTBN;
 
@@ -69,15 +73,20 @@ const fragmentShader = `
     vec3 blendedDiffuse = mix(baseColor, leavesColor, vColor.r); // Mix in leaves
 
     // --- 2. Normal Mapping ---
-    vec3 leavesNormal = texture2D(uLeavesNormal, vUv * textureScale).xyz * 2.0 - 1.0;
-    vec3 perturbedNormal = normalize(vTBN * leavesNormal);
-    vec3 finalNormal = mix(normalize(vNormal), perturbedNormal, vColor.r); // Only apply leaves normal where painted
+    vec3 tangentSpaceNormal = texture2D(uLeavesNormal, vUv * textureScale).xyz * 2.0 - 1.0;
+    vec3 perturbedNormal = normalize(vTBN * tangentSpaceNormal);
+
+    // --- CORRECTION: Mix between two world-space normals ---
+    vec3 finalNormal = normalize(mix(vWorldNormal, perturbedNormal, vColor.r));
 
     // --- 3. Roughness ---
     float leavesRoughness = texture2D(uLeavesRoughness, vUv * textureScale).r;
     float blendedRoughness = mix(0.9, leavesRoughness, vColor.r); // Base roughness vs leaves roughness
 
     // --- 4. Lighting (Simplified PBR) ---
+    // All lighting calculations now use the correct world-space 'finalNormal'
+    vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
+    
     // Ambient Light (from sky)
     float skyFactor = dot(finalNormal, vec3(0.0, 1.0, 0.0)) * 0.5 + 0.5;
     vec3 skyLight = mix(vec3(0.3, 0.2, 0.1), vec3(0.4, 0.5, 0.7), skyFactor) * 0.5;
@@ -87,15 +96,14 @@ const fragmentShader = `
     vec3 diffuse = diffuseStrength * uDirLightColor * uDirLightIntensity;
 
     // Specular
-    vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
     vec3 halfwayDir = normalize(uSunDirection + viewDirection);
     float spec = pow(max(dot(finalNormal, halfwayDir), 0.0), 32.0);
     vec3 specular = (spec * (1.0 - blendedRoughness)) * uDirLightColor * uDirLightIntensity * 0.5;
 
     vec3 lighting = skyLight + diffuse + specular;
-    vec3 finalColor = blendedDiffuse * lighting;
+    vec3 finalColor = pow(blendedDiffuse, vec3(2.2)) * lighting; // Gamma correction on diffuse
 
-    gl_FragColor = vec4(finalColor, 1.0);
+    gl_FragColor = vec4(pow(finalColor, vec3(1.0/2.2)), 1.0); // Final gamma correction
   }
 `;
 
@@ -210,7 +218,6 @@ export function paintTextureOnTile(ci, cj, texture, radius, appState) {
     if (!terrainMesh || !texture) return;
 
     const colorAttr = terrainMesh.geometry.attributes.color;
-    const positionAttr = terrainMesh.geometry.attributes.position;
     const brushWeight = TEXTURE_INFO[texture]?.weight;
     if (!brushWeight) return; // Exit if texture is not in our list
 
