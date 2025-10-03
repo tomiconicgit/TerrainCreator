@@ -26,8 +26,8 @@ async function loadThree() {
   const THREE = await loadThree();
 
   // --------- Config / State ----------
-  let TILES_X = 30, TILES_Y = 30;       // user-chosen grid
-  const TILE_SIZE = 32;                 // world units per tile
+  let TILES_X = 30, TILES_Y = 30;
+  const TILE_SIZE = 32;
   const MIN_H = -200, MAX_H = 300;
   const raycaster = new THREE.Raycaster();
 
@@ -37,11 +37,12 @@ async function loadThree() {
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;    // <-- better highlight rolloff
+  renderer.toneMappingExposure = 1.1;                     // <-- brighter by default
   renderer.shadowMap.enabled = true;
 
   const scene = new THREE.Scene();
-  // IMPORTANT: allow sky to render as background
-  scene.background = null;
+  scene.background = null; // let the Sky draw
 
   const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 20000);
   camera.position.set(600, 450, 600);
@@ -82,8 +83,9 @@ async function loadThree() {
 
   // --------- Sky ----------
   const sky = new SkySystem(THREE, null, scene, renderer, sun);
-  await sky.load();                         // tries addon; falls back to gradient if needed
-  sky.update(100 * TILE_SIZE, new THREE.Vector3(0,0,0)); // visible before first terrain build
+  await sky.load();
+  // Visible before first terrain build (100 tiles baseline)
+  sky.update(100 * TILE_SIZE, new THREE.Vector3(0,0,0));
 
   // --------- Terrain / Trees / Ball ----------
   let terrainGroup=null, terrainMesh=null, edgesHelper=null, treesGroup=null, ball=null;
@@ -100,7 +102,6 @@ async function loadThree() {
   const planeWorldSize = () => ({ W: TILES_X * TILE_SIZE, H: TILES_Y * TILE_SIZE });
 
   function updateSkyBounds() {
-    // Min 100×100 tiles; expand if the grid exceeds that
     const tilesSpan = Math.max(TILES_X, TILES_Y);
     const tilesForSky = Math.max(100, tilesSpan);
     const worldSpanUnits = tilesForSky * TILE_SIZE;
@@ -187,14 +188,14 @@ async function loadThree() {
     ball?.refresh();
   }
 
-  // --------- Trees (fit within a tile) ----------
+  // --------- Trees ----------
   function clearTrees(){ dispose(treesGroup); treesGroup=null; }
   function tileCenterLocal(i,j){
     const { W, H } = planeWorldSize();
     const x = -W/2 + (i + 0.5) * TILE_SIZE;
     const z = -H/2 + (j + 0.5) * TILE_SIZE;
     return new THREE.Vector3(x,0,z);
-    }
+  }
   function sampleHeightLocal(x,z){
     const { W, H } = planeWorldSize();
     const u=(x+W/2)/W, v=(z+H/2)/H;
@@ -226,7 +227,7 @@ async function loadThree() {
     clearTrees();
     if(!terrainMesh || count<=0) return;
     treesGroup = new THREE.Group(); treesGroup.name='Trees';
-    const scale = TILE_SIZE; // tree geometry parameterized to a tile
+    const scale = TILE_SIZE;
     const max = Math.min(count, TILES_X * TILES_Y);
     const used = new Set();
     let placed = 0;
