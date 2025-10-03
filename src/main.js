@@ -40,6 +40,12 @@ function showErrorOverlay(msg, err) {
   const MIN_H = -200, MAX_H = 300;
   const raycaster = new THREE.Raycaster();
 
+  // Real-world-ish cues (minimal, no unit overhaul):
+  // Treat "one tile = a spot that fits a 6ft person".
+  const CHAR_HEIGHT_UNITS = TILE_SIZE * 1.0;           // 1 tile height ~ "6ft"
+  const TREE_MIN_RATIO = 10 / 6;                       // 10ft relative to 6ft
+  const TREE_MAX_RATIO = 15 / 6;                       // 15ft relative to 6ft
+
   // ---- Renderer / Scene / Camera ----
   const canvas = document.getElementById('c');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
@@ -213,10 +219,18 @@ function showErrorOverlay(msg, err) {
 
     rebuildEdges();
 
-    // ball fits a tile
-    const ballRadius = Math.max(6, TILE_SIZE * 0.3);
+    // ball fits a tile (keep your visual, but nudge radius to read as a "6ft person spot")
+    const ballRadius = Math.max(6, Math.min(TILE_SIZE * 0.45, CHAR_HEIGHT_UNITS * 0.35));
     if (ball) ball.dispose();
-    ball = new BallMarker({ three: THREE, scene, terrainMesh, tileI: Math.floor(TILES_X/3), tileJ: Math.floor(TILES_Y/3), radius: ballRadius, color: 0xff2b2b });
+    ball = new BallMarker({
+      three: THREE,
+      scene,
+      terrainMesh,
+      tileI: Math.floor(TILES_X/3),
+      tileJ: Math.floor(TILES_Y/3),
+      radius: ballRadius,
+      color: 0xff2b2b
+    });
 
     updateSkyBounds();
   }
@@ -297,24 +311,35 @@ function showErrorOverlay(msg, err) {
     const y0=y00*(1-fx)+y10*fx, y1=y01*(1-fx)+y11*fx;
     return y0*(1-fy)+y1*fy;
   }
-  function makeTree(scale){
+
+  // Updated: trees sized 10–15ft equivalent (> character height)
+  function makeTree(/* scale unused now */){
+    const ratio = THREE.MathUtils.lerp(TREE_MIN_RATIO, TREE_MAX_RATIO, Math.random()); // ~1.67..2.5x character
+    const totalH = CHAR_HEIGHT_UNITS * ratio;
+    const trunkH = totalH * 0.42;
+    const crownH = totalH - trunkH;
+
+    const crownR = Math.min(TILE_SIZE * 0.45, totalH * 0.22);
+    const trunkRBottom = Math.max(TILE_SIZE * 0.06, crownR * 0.22);
+    const trunkRTop    = Math.max(TILE_SIZE * 0.04, crownR * 0.16);
+
     const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.08*scale, 0.12*scale, 0.9*scale, 6),
+      new THREE.CylinderGeometry(trunkRTop, trunkRBottom, trunkH, 10),
       new THREE.MeshStandardMaterial({color:0x735a3a, roughness:0.9})
     );
     const crown = new THREE.Mesh(
-      new THREE.ConeGeometry(0.45*scale, 1.2*scale, 8),
+      new THREE.ConeGeometry(crownR, crownH, 12),
       new THREE.MeshStandardMaterial({color:0x2f9448, roughness:0.9})
     );
-    crown.position.y = 0.9*scale*0.5 + 1.2*scale*0.5;
+    crown.position.y = trunkH*0.5 + crownH*0.5;
     trunk.castShadow = crown.castShadow = true;
     const g = new THREE.Group(); g.add(trunk, crown); return g;
   }
+
   function populateTrees(count){
     clearTrees();
     if(!terrainMesh || count<=0) return;
     treesGroup = new THREE.Group(); treesGroup.name='Trees';
-    const scale = TILE_SIZE;
     const max = Math.min(count, TILES_X * TILES_Y);
     const used = new Set();
     let placed = 0;
@@ -326,7 +351,7 @@ function showErrorOverlay(msg, err) {
       used.add(key);
       const c = tileCenterLocal(i,j);
       const y = sampleHeightLocal(c.x, c.z);
-      const t = makeTree(scale * 0.6);
+      const t = makeTree();
       t.position.set(c.x, y, c.z);
       treesGroup.add(t);
       placed++;
@@ -475,6 +500,22 @@ function showErrorOverlay(msg, err) {
       applyTileDelta(i,j,sign, r, step);
     }
   }
+
+  // --- NEW: Tap-to-move character when Sculpt is OFF ---
+  renderer.domElement.addEventListener('pointerdown', (ev) => {
+    if (sculptOn.checked) return;                // don't hijack sculpting gesture
+    if (!terrainMesh || !ball) return;
+    const rect = renderer.domElement.getBoundingClientRect();
+    const x = ((ev.clientX-rect.left)/rect.width)*2 - 1;
+    const y = -((ev.clientY-rect.top)/rect.height)*2 + 1;
+    raycaster.setFromCamera({x,y}, camera);
+    const hit = raycaster.intersectObject(terrainMesh, false)[0];
+    if (!hit) return;
+    const local = terrainMesh.worldToLocal(hit.point.clone());
+    const { i, j } = worldToTile(local.x, local.z);
+    ball.placeOnTile(i, j);
+  });
+  // --- END tap-to-move ---
 
   // ---- Boot / Loop / SW ----
   buildTerrain();                                  // also triggers updateSkyBounds()
