@@ -145,6 +145,11 @@ export function initTapToPaint(appState, getUiState) {
             
             // Call the paint function
             paintTextureOnTile(i, j, uiState.paintTexture, uiState.paintRadius, appState);
+
+            // Trigger grass regeneration
+            if (appState.grass) {
+                appState.grass.regenerate();
+            }
         }
     });
 }
