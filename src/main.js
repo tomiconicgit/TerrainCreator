@@ -1,3 +1,4 @@
+// file: src/main.js
 // Simplified UI + tile terrain + trees + sculpt (freezes camera) + Sky that grows with grid.
 import BallMarker from './character.js';
 import { SkySystem } from './sky.js';
@@ -39,7 +40,8 @@ async function loadThree() {
   renderer.shadowMap.enabled = true;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0c0f14);
+  // IMPORTANT: allow sky to render as background
+  scene.background = null;
 
   const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 20000);
   camera.position.set(600, 450, 600);
@@ -80,7 +82,8 @@ async function loadThree() {
 
   // --------- Sky ----------
   const sky = new SkySystem(THREE, null, scene, renderer, sun);
-  await sky.load(); // tries addon; falls back to gradient if needed
+  await sky.load();                         // tries addon; falls back to gradient if needed
+  sky.update(100 * TILE_SIZE, new THREE.Vector3(0,0,0)); // visible before first terrain build
 
   // --------- Terrain / Trees / Ball ----------
   let terrainGroup=null, terrainMesh=null, edgesHelper=null, treesGroup=null, ball=null;
@@ -401,5 +404,7 @@ async function loadThree() {
 
   if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
   let promptEvt=null; addEventListener('beforeinstallprompt',e=>{e.preventDefault();promptEvt=e;});
-  document.getElementById('installBtn')?.addEventListener('click',()=>{ if(promptEvt){promptEvt.prompt(); promptEvt=null;} else alert('To install: Share → Add to Home Screen'); });
+  document.getElementById('installBtn')?.addEventListener('click',()=>{
+    if(promptEvt){promptEvt.prompt(); promptEvt=null;} else alert('To install: Share → Add to Home Screen');
+  });
 })().catch(e=>showErrorOverlay('Top-level init crashed.', e));
