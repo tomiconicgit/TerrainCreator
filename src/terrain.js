@@ -5,106 +5,33 @@ import BallMarker from './character.js';
 
 let edgesHelper = null;
 
-// Define texture blend weights. R=Leaves, G=Grass, B=Sand.
-const TEXTURE_INFO = {
-    grass: { weight: new THREE.Vector3(0, 1, 0) },
-    sand:  { weight: new THREE.Vector3(0, 0, 1) },
-    leaves:{ weight: new THREE.Vector3(1, 0, 0) },
-    // Gravel and stone painting is disabled in this 3-texture setup
-    gravel:{ weight: new THREE.Vector3(0, 1, 0) },
-    stone: { weight: new THREE.Vector3(0, 1, 0) },
-};
-const DEFAULT_TEXTURE = 'grass';
+// --- Canvas Painting Setup ---
+const CANVAS_SIZE = 2048;
+let paintCanvas, paintCtx, canvasTexture;
+const textureImages = {}; 
+let baseTextureLoaded = false;
 
-// --- UPGRADED SHADER WITH BLENDING & DISPLACEMENT ---
-const vertexShader = `
-  uniform sampler2D uLeavesDisplacement;
-  uniform float uDisplacementScale;
+// Pre-load images for painting
+function loadTextureImages(callback) {
+    const texturesToLoad = {
+        leaves: './src/assets/textures/leaves-diffuse.jpg',
+    };
+    const textureKeys = Object.keys(texturesToLoad);
+    let loadedCount = 0;
 
-  varying vec2 vUv;
-  varying vec3 vColor;
-  varying vec3 vWorldNormal;
-  varying vec3 vWorldPosition;
-  varying mat3 vTBN;
-
-  void main() {
-    vUv = uv;
-    vColor = color;
-
-    // --- DISPLACEMENT LOGIC ---
-    // Sample the displacement map
-    float displacement = texture2D(uLeavesDisplacement, vUv).r;
-    // Only apply displacement where leaves are painted (using red vertex color)
-    vec3 displacedPosition = position + normal * displacement * uDisplacementScale * vColor.r;
-
-    vec4 worldPosition = modelMatrix * vec4(displacedPosition, 1.0);
-    vWorldPosition = worldPosition.xyz;
-    
-    vec3 worldNormal = normalize(vec3(modelMatrix * vec4(normal, 0.0)));
-    vWorldNormal = worldNormal;
-    
-    // For Normal Mapping
-    vec3 worldTangent = normalize(vec3(modelMatrix * vec4(tangent.xyz, 0.0)));
-    vec3 worldBitangent = cross(worldNormal, worldTangent) * tangent.w;
-    vTBN = mat3(worldTangent, worldBitangent, worldNormal);
-
-    gl_Position = projectionMatrix * viewMatrix * worldPosition;
-  }
-`;
-
-const fragmentShader = `
-  uniform sampler2D uGrassDiffuse;
-  uniform sampler2D uSandDiffuse;
-  uniform sampler2D uLeavesDiffuse;
-  uniform sampler2D uLeavesNormal;
-  uniform sampler2D uLeavesRoughness;
-
-  uniform vec3 uSunDirection;
-  uniform vec3 uDirLightColor;
-  uniform float uDirLightIntensity;
-
-  varying vec2 vUv;
-  varying vec3 vColor; // Blend weights (R: leaves, G: grass, B: sand)
-  varying vec3 vWorldNormal;
-  varying vec3 vWorldPosition;
-  varying mat3 vTBN;
-
-  void main() {
-    float textureScale = 20.0;
-    vec3 grassColor = texture2D(uGrassDiffuse, vUv * textureScale).rgb;
-    vec3 sandColor = texture2D(uSandDiffuse, vUv * textureScale).rgb;
-    vec3 leavesColor = texture2D(uLeavesDiffuse, vUv * textureScale).rgb;
-
-    // Blend diffuse colors based on vertex color weights
-    vec3 baseColor = mix(grassColor, sandColor, vColor.b);
-    vec3 blendedDiffuse = mix(baseColor, leavesColor, vColor.r);
-
-    // Normal Mapping
-    vec3 tangentSpaceNormal = texture2D(uLeavesNormal, vUv * textureScale).xyz * 2.0 - 1.0;
-    vec3 perturbedNormal = normalize(vTBN * tangentSpaceNormal);
-    vec3 finalNormal = normalize(mix(vWorldNormal, perturbedNormal, vColor.r));
-
-    // Roughness Blending
-    float leavesRoughness = texture2D(uLeavesRoughness, vUv * textureScale).r;
-    float blendedRoughness = mix(0.9, leavesRoughness, vColor.r);
-
-    // Lighting
-    vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
-    float skyFactor = dot(finalNormal, vec3(0.0, 1.0, 0.0)) * 0.5 + 0.5;
-    vec3 skyLight = mix(vec3(0.3, 0.2, 0.1), vec3(0.4, 0.5, 0.7), skyFactor) * 0.5;
-    float diffuseStrength = max(0.0, dot(finalNormal, uSunDirection));
-    vec3 diffuse = diffuseStrength * uDirLightColor * uDirLightIntensity;
-    vec3 halfwayDir = normalize(uSunDirection + viewDirection);
-    float spec = pow(max(dot(finalNormal, halfwayDir), 0.0), 32.0);
-    vec3 specular = (spec * (1.0 - blendedRoughness)) * uDirLightColor * uDirLightIntensity * 0.5;
-
-    vec3 lighting = skyLight + diffuse + specular;
-    vec3 finalColor = pow(blendedDiffuse, vec3(2.2)) * lighting;
-
-    gl_FragColor = vec4(pow(finalColor, vec3(1.0/2.2)), 1.0);
-  }
-`;
-
+    textureKeys.forEach(key => {
+        const img = new Image();
+        img.crossOrigin = "Anonymous";
+        img.src = texturesToLoad[key];
+        img.onload = () => {
+            textureImages[key] = img;
+            loadedCount++;
+            if (loadedCount === textureKeys.length) {
+                callback();
+            }
+        };
+    });
+}
 
 function rebuildEdges(terrainGroup, terrainMesh) {
   if (!terrainMesh) return;
@@ -130,65 +57,53 @@ export function createTerrain(appState) {
     dispose(appState.treesGroup);
     appState.treesGroup = null;
 
-    const geom = new THREE.PlaneGeometry(W, H, TILES_X, TILES_Y);
+    // --- MAJOR CHANGE: Increased Segments for Displacement ---
+    // The number of vertices is segments + 1. More segments = more detail.
+    // Let's use 200x200 for a good balance of detail and performance.
+    const xSegments = 200;
+    const ySegments = 200;
+    const geom = new THREE.PlaneGeometry(W, H, xSegments, ySegments);
     geom.rotateX(-Math.PI / 2);
-    geom.computeTangents();
+    
+    // --- Canvas and Material Setup ---
+    paintCanvas = document.createElement('canvas');
+    paintCanvas.width = CANVAS_SIZE;
+    paintCanvas.height = CANVAS_SIZE;
+    paintCtx = paintCanvas.getContext('2d');
+    paintCtx.fillStyle = '#559040'; // Base grass color
+    paintCtx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
 
-    // --- Load Textures ---
+    canvasTexture = new THREE.CanvasTexture(paintCanvas);
+    canvasTexture.colorSpace = THREE.SRGBColorSpace;
+
+    // --- Load Textures for the Standard Material ---
     const textureLoader = new THREE.TextureLoader();
-    const loadTexture = (path) => {
-        const texture = textureLoader.load(path);
-        texture.wrapS = THREE.RepeatWrapping;
-        texture.wrapT = THREE.RepeatWrapping;
-        return texture;
-    };
+    const displacementMap = textureLoader.load('./src/assets/textures/displacement.png');
+    const normalMap = textureLoader.load('./src/assets/textures/leaves-normal.png');
     
-    // Using placeholder textures for grass/sand. Replace with your own images if you have them.
-    const createPlaceholderTexture = (color) => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 1; canvas.height = 1;
-        const context = canvas.getContext('2d');
-        context.fillStyle = color;
-        context.fillRect(0, 0, 1, 1);
-        const texture = new THREE.CanvasTexture(canvas);
-        texture.colorSpace = THREE.SRGBColorSpace;
-        return texture;
-    };
-    
-    const leavesDiffuse = loadTexture('./src/assets/textures/leaves-diffuse.jpg'); // PATH CORRECTED
-    leavesDiffuse.colorSpace = THREE.SRGBColorSpace; // Set color space for the diffuse map
+    const terrainMaterial = new THREE.MeshStandardMaterial({
+        // Use our paintable canvas as the main color map
+        map: canvasTexture,
+        
+        // Use the leaves normal map across the whole terrain for consistent detail
+        normalMap: normalMap,
 
-    const terrainMaterial = new THREE.ShaderMaterial({
-        uniforms: {
-          // Texture uniforms
-          uGrassDiffuse: { value: createPlaceholderTexture('#559040') },
-          uSandDiffuse: { value: createPlaceholderTexture('#dacfa0') },
-          uLeavesDiffuse: { value: leavesDiffuse },
-          uLeavesNormal: { value: loadTexture('./src/assets/textures/leaves-normal.png') }, // PATH CORRECTED
-          uLeavesRoughness: { value: loadTexture('./src/assets/textures/leaves-roughness.jpg') }, // PATH CORRECTED
-          uLeavesDisplacement: { value: loadTexture('./src/assets/textures/displacement.png') }, // PATH CORRECTED
-          uDisplacementScale: { value: 10.0 }, // How high the leaves "pop out". Adjust this value!
-          // Lighting uniforms
-          uSunDirection: { value: new THREE.Vector3(0.707, 0.707, 0) },
-          uDirLightColor: { value: new THREE.Color(0xffffff) },
-          uDirLightIntensity: { value: 1.0 },
-        },
-        vertexShader: vertexShader,
-        fragmentShader: fragmentShader,
-        vertexColors: true,
-      });
+        // --- APPLY DISPLACEMENT MAP ---
+        displacementMap: displacementMap,
+        // Adjust this value to control how "bumpy" the terrain gets. Start small!
+        displacementScale: 5.0, 
+    });
     appState.terrainMaterial = terrainMaterial;
-    
-    const vertexCount = geom.attributes.position.count;
-    geom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(vertexCount * 3), 3));
-    const colors = geom.attributes.color;
-    const defaultWeight = TEXTURE_INFO[DEFAULT_TEXTURE].weight;
-    for (let i = 0; i < vertexCount; i++) {
-        colors.setXYZ(i, defaultWeight.x, defaultWeight.y, defaultWeight.z);
-    }
     
     const mesh = new THREE.Mesh(geom, terrainMaterial);
     mesh.receiveShadow = true; 
+
+    if (!baseTextureLoaded) {
+        loadTextureImages(() => {
+            baseTextureLoaded = true;
+            canvasTexture.needsUpdate = true;
+        });
+    }
 
     const terrainGroup = new THREE.Group();
     terrainGroup.name = 'TileTerrain';
@@ -214,51 +129,31 @@ export function createTerrain(appState) {
     });
 }
 
-// --- RE-ENABLING PAINTING LOGIC ---
+// --- Canvas Painting Logic (Unchanged) ---
 export function paintTextureOnTile(ci, cj, texture, radius, appState) {
-    const { terrainMesh, config, ball } = appState;
-    if (!terrainMesh || !texture) return;
+    if (!paintCtx || !textureImages[texture]) return;
 
-    const colorAttr = terrainMesh.geometry.attributes.color;
-    const brushWeight = TEXTURE_INFO[texture]?.weight;
-    if (!brushWeight) return;
+    const { config } = appState;
+    const canvasX = (ci / config.TILES_X) * CANVAS_SIZE;
+    const canvasY = (cj / config.TILES_Y) * CANVAS_SIZE;
+    const pixelRadius = (radius / Math.max(config.TILES_X, config.TILES_Y)) * CANVAS_SIZE;
 
-    const vpr = config.TILES_X + 1;
-    const getTileVertexIndices = (i, j) => {
-        const tl = j * vpr + i; const tr = tl + 1;
-        const bl = (j + 1) * vpr + i; const br = bl + 1;
-        return [tl, tr, bl, br];
-    };
-    
-    const existingWeight = new THREE.Vector3();
-    for (let j = cj - radius; j <= cj + radius; j++) {
-        for (let i = ci - radius; i <= ci + radius; i++) {
-            if (i >= 0 && i < config.TILES_X && j >= 0 && j < config.TILES_Y) {
-                const dist = Math.hypot(i - ci, j - cj);
-                if (dist <= radius) {
-                    const falloff = Math.max(0, 1.0 - (dist / radius));
-                    const blendStrength = falloff * falloff * 0.1;
-                    
-                    const vertexIndices = getTileVertexIndices(i, j);
-                    vertexIndices.forEach(vi => {
-                        existingWeight.fromBufferAttribute(colorAttr, vi);
-                        existingWeight.lerp(brushWeight, blendStrength);
-
-                        // Normalize the weights so they sum to 1
-                        const total = existingWeight.x + existingWeight.y + existingWeight.z;
-                        if (total > 0.0) {
-                            existingWeight.divideScalar(total);
-                        }
-                        colorAttr.setXYZ(vi, existingWeight.x, existingWeight.y, existingWeight.z);
-                    });
-                }
-            }
-        }
-    }
-    colorAttr.needsUpdate = true;
-    if (ball) ball.refresh();
+    paintCtx.save();
+    paintCtx.beginPath();
+    paintCtx.arc(canvasX, canvasY, pixelRadius, 0, Math.PI * 2);
+    paintCtx.clip();
+    paintCtx.drawImage(
+        textureImages[texture],
+        canvasX - pixelRadius,
+        canvasY - pixelRadius,
+        pixelRadius * 2,
+        pixelRadius * 2
+    );
+    paintCtx.restore();
+    canvasTexture.needsUpdate = true;
 }
 
+// The rest of the file (randomize, applyHeightmapTemplate, noise functions) remains the same.
 export function randomizeTerrain(appState) {
     if (!appState.terrainMesh) return;
     const arr = appState.terrainMesh.geometry.attributes.position.array;
@@ -275,13 +170,16 @@ export function applyHeightmapTemplate(name, appState) {
     if (!appState.terrainMesh) return;
     const { terrainMesh, ball } = appState;
     const { TILES_X, TILES_Y } = appState.config;
+    // We need to use the geometry's actual segment count now
+    const { widthSegments, heightSegments } = terrainMesh.geometry.parameters;
+
     const pos = terrainMesh.geometry.attributes.position.array;
     const minH = -80, maxH = 120, range = maxH - minH;
     let idx = 1;
-    for (let jy = 0; jy <= TILES_Y; jy++) {
-        const v = jy / TILES_Y;
-        for (let ix = 0; ix <= TILES_X; ix++) {
-            const u = ix / TILES_X;
+    for (let jy = 0; jy <= heightSegments; jy++) {
+        const v = jy / heightSegments;
+        for (let ix = 0; ix <= widthSegments; ix++) {
+            const u = ix / widthSegments;
             let n = 0;
             switch (name) {
                 case 'Flat': n = -1; break;
@@ -304,7 +202,6 @@ export function applyHeightmapTemplate(name, appState) {
     if (ball) ball.refresh();
 }
 
-// Noise functions
 const _clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const _smooth = (t) => t * t * (3 - 2 * t);
 const _perm = new Uint8Array(512);
