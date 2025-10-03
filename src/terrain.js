@@ -6,12 +6,14 @@ import BallMarker from './character.js';
 let edgesHelper = null;
 
 // --- Canvas Painting Setup ---
-const CANVAS_SIZE = 2048;
+const CANVAS_SIZE = 2048; // The resolution of our paintable texture
 let paintCanvas, paintCtx, canvasTexture;
+
+// Store loaded images for painting
 const textureImages = {}; 
 let baseTextureLoaded = false;
 
-// Pre-load images for painting
+// Pre-load all images we need for painting
 function loadTextureImages(callback) {
     const texturesToLoad = {
         leaves: './src/assets/textures/leaves-diffuse.jpg',
@@ -32,6 +34,7 @@ function loadTextureImages(callback) {
         };
     });
 }
+
 
 function rebuildEdges(terrainGroup, terrainMesh) {
   if (!terrainMesh) return;
@@ -57,51 +60,45 @@ export function createTerrain(appState) {
     dispose(appState.treesGroup);
     appState.treesGroup = null;
 
-    // --- MAJOR CHANGE: Increased Segments for Displacement ---
-    // The number of vertices is segments + 1. More segments = more detail.
-    // Let's use 200x200 for a good balance of detail and performance.
-    const xSegments = 200;
-    const ySegments = 200;
-    const geom = new THREE.PlaneGeometry(W, H, xSegments, ySegments);
+    // --- RESTORED GRID LOGIC ---
+    // The geometry is now built using the user-defined tile count.
+    const geom = new THREE.PlaneGeometry(W, H, TILES_X, TILES_Y);
     geom.rotateX(-Math.PI / 2);
     
-    // --- Canvas and Material Setup ---
-    paintCanvas = document.createElement('canvas');
-    paintCanvas.width = CANVAS_SIZE;
-    paintCanvas.height = CANVAS_SIZE;
-    paintCtx = paintCanvas.getContext('2d');
-    paintCtx.fillStyle = '#559040'; // Base grass color
-    paintCtx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-
-    canvasTexture = new THREE.CanvasTexture(paintCanvas);
-    canvasTexture.colorSpace = THREE.SRGBColorSpace;
-
-    // --- Load Textures for the Standard Material ---
-    const textureLoader = new THREE.TextureLoader();
-    const displacementMap = textureLoader.load('./src/assets/textures/displacement.png');
-    const normalMap = textureLoader.load('./src/assets/textures/leaves-normal.png');
+    // --- Canvas and Material Setup (Unchanged) ---
+    // This part remains the same, as the painting logic is independent of the mesh resolution.
+    if (!paintCanvas) {
+        paintCanvas = document.createElement('canvas');
+        paintCanvas.width = CANVAS_SIZE;
+        paintCanvas.height = CANVAS_SIZE;
+        paintCtx = paintCanvas.getContext('2d');
+        canvasTexture = new THREE.CanvasTexture(paintCanvas);
+        canvasTexture.colorSpace = THREE.SRGBColorSpace;
+    }
     
-    const terrainMaterial = new THREE.MeshStandardMaterial({
-        // Use our paintable canvas as the main color map
-        map: canvasTexture,
-        
-        // Use the leaves normal map across the whole terrain for consistent detail
-        normalMap: normalMap,
+    // Clear and fill with a base green color each time terrain is generated
+    paintCtx.fillStyle = '#559040';
+    paintCtx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    canvasTexture.needsUpdate = true;
+    
+    // We can still use the normal map for added detail
+    const textureLoader = new THREE.TextureLoader();
+    const normalMap = textureLoader.load('./src/assets/textures/leaves-normal.png');
 
-        // --- APPLY DISPLACEMENT MAP ---
-        displacementMap: displacementMap,
-        // Adjust this value to control how "bumpy" the terrain gets. Start small!
-        displacementScale: 5.0, 
+    const terrainMaterial = new THREE.MeshStandardMaterial({
+        map: canvasTexture,
+        normalMap: normalMap,
+        // Displacement map is removed as it's not effective on a low-poly grid
     });
     appState.terrainMaterial = terrainMaterial;
     
     const mesh = new THREE.Mesh(geom, terrainMaterial);
     mesh.receiveShadow = true; 
 
+    // Load painting textures only once
     if (!baseTextureLoaded) {
         loadTextureImages(() => {
             baseTextureLoaded = true;
-            canvasTexture.needsUpdate = true;
         });
     }
 
@@ -129,19 +126,24 @@ export function createTerrain(appState) {
     });
 }
 
-// --- Canvas Painting Logic (Unchanged) ---
+// --- Canvas Painting Logic (Correctly Maps Tiles to Canvas) ---
 export function paintTextureOnTile(ci, cj, texture, radius, appState) {
     if (!paintCtx || !textureImages[texture]) return;
 
     const { config } = appState;
-    const canvasX = (ci / config.TILES_X) * CANVAS_SIZE;
-    const canvasY = (cj / config.TILES_Y) * CANVAS_SIZE;
+
+    // Convert tile coordinates (ci, cj) to canvas pixel coordinates. This is the core mapping logic.
+    const canvasX = ((ci + 0.5) / config.TILES_X) * CANVAS_SIZE;
+    const canvasY = ((cj + 0.5) / config.TILES_Y) * CANVAS_SIZE;
+    
+    // Convert paint radius from a number of tiles to a pixel radius on the canvas
     const pixelRadius = (radius / Math.max(config.TILES_X, config.TILES_Y)) * CANVAS_SIZE;
 
     paintCtx.save();
     paintCtx.beginPath();
     paintCtx.arc(canvasX, canvasY, pixelRadius, 0, Math.PI * 2);
     paintCtx.clip();
+    
     paintCtx.drawImage(
         textureImages[texture],
         canvasX - pixelRadius,
@@ -149,11 +151,12 @@ export function paintTextureOnTile(ci, cj, texture, radius, appState) {
         pixelRadius * 2,
         pixelRadius * 2
     );
+
     paintCtx.restore();
     canvasTexture.needsUpdate = true;
 }
 
-// The rest of the file (randomize, applyHeightmapTemplate, noise functions) remains the same.
+// The rest of the file (randomize, applyHeightmapTemplate, etc.) is restored to use the tile-based logic.
 export function randomizeTerrain(appState) {
     if (!appState.terrainMesh) return;
     const arr = appState.terrainMesh.geometry.attributes.position.array;
@@ -168,18 +171,18 @@ export function randomizeTerrain(appState) {
 
 export function applyHeightmapTemplate(name, appState) {
     if (!appState.terrainMesh) return;
-    const { terrainMesh, ball } = appState;
-    const { TILES_X, TILES_Y } = appState.config;
-    // We need to use the geometry's actual segment count now
-    const { widthSegments, heightSegments } = terrainMesh.geometry.parameters;
+    const { terrainMesh, ball, config } = appState;
+    // --- RESTORED LOGIC ---
+    // Use the config's tile count, not the geometry's segments.
+    const { TILES_X, TILES_Y } = config;
 
     const pos = terrainMesh.geometry.attributes.position.array;
     const minH = -80, maxH = 120, range = maxH - minH;
     let idx = 1;
-    for (let jy = 0; jy <= heightSegments; jy++) {
-        const v = jy / heightSegments;
-        for (let ix = 0; ix <= widthSegments; ix++) {
-            const u = ix / widthSegments;
+    for (let jy = 0; jy <= TILES_Y; jy++) {
+        const v = jy / TILES_Y;
+        for (let ix = 0; ix <= TILES_X; ix++) {
+            const u = ix / TILES_X;
             let n = 0;
             switch (name) {
                 case 'Flat': n = -1; break;
