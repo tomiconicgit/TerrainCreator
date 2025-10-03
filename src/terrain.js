@@ -13,6 +13,10 @@ let paintCanvas, paintCtx, canvasTexture;
 const textureImages = {}; 
 let baseTextureLoaded = false;
 
+// --- NEW: Control the painted texture size ---
+// A higher number makes the texture appear smaller and more tiled.
+const texturePaintScale = 5.0;
+
 // Pre-load all images we need for painting
 function loadTextureImages(callback) {
     const texturesToLoad = {
@@ -60,13 +64,9 @@ export function createTerrain(appState) {
     dispose(appState.treesGroup);
     appState.treesGroup = null;
 
-    // --- RESTORED GRID LOGIC ---
-    // The geometry is now built using the user-defined tile count.
     const geom = new THREE.PlaneGeometry(W, H, TILES_X, TILES_Y);
     geom.rotateX(-Math.PI / 2);
     
-    // --- Canvas and Material Setup (Unchanged) ---
-    // This part remains the same, as the painting logic is independent of the mesh resolution.
     if (!paintCanvas) {
         paintCanvas = document.createElement('canvas');
         paintCanvas.width = CANVAS_SIZE;
@@ -76,26 +76,22 @@ export function createTerrain(appState) {
         canvasTexture.colorSpace = THREE.SRGBColorSpace;
     }
     
-    // Clear and fill with a base green color each time terrain is generated
     paintCtx.fillStyle = '#559040';
     paintCtx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
     canvasTexture.needsUpdate = true;
     
-    // We can still use the normal map for added detail
     const textureLoader = new THREE.TextureLoader();
     const normalMap = textureLoader.load('./src/assets/textures/leaves-normal.png');
 
     const terrainMaterial = new THREE.MeshStandardMaterial({
         map: canvasTexture,
         normalMap: normalMap,
-        // Displacement map is removed as it's not effective on a low-poly grid
     });
     appState.terrainMaterial = terrainMaterial;
     
     const mesh = new THREE.Mesh(geom, terrainMaterial);
     mesh.receiveShadow = true; 
 
-    // Load painting textures only once
     if (!baseTextureLoaded) {
         loadTextureImages(() => {
             baseTextureLoaded = true;
@@ -126,37 +122,36 @@ export function createTerrain(appState) {
     });
 }
 
-// --- Canvas Painting Logic (Correctly Maps Tiles to Canvas) ---
+// --- UPDATED Canvas Painting Logic with Tiling ---
 export function paintTextureOnTile(ci, cj, texture, radius, appState) {
     if (!paintCtx || !textureImages[texture]) return;
 
     const { config } = appState;
 
-    // Convert tile coordinates (ci, cj) to canvas pixel coordinates. This is the core mapping logic.
     const canvasX = ((ci + 0.5) / config.TILES_X) * CANVAS_SIZE;
     const canvasY = ((cj + 0.5) / config.TILES_Y) * CANVAS_SIZE;
-    
-    // Convert paint radius from a number of tiles to a pixel radius on the canvas
     const pixelRadius = (radius / Math.max(config.TILES_X, config.TILES_Y)) * CANVAS_SIZE;
 
-    paintCtx.save();
+    // Create a repeating pattern from the texture image
+    const pattern = paintCtx.createPattern(textureImages[texture], 'repeat');
+
+    // Create a transformation matrix to scale the pattern
+    const matrix = new DOMMatrix().scale(texturePaintScale, texturePaintScale);
+    pattern.setTransform(matrix);
+    
+    // Set the fill style to our new scaled pattern
+    paintCtx.fillStyle = pattern;
+
+    // Draw a circle at the brush location and fill it with the pattern
     paintCtx.beginPath();
     paintCtx.arc(canvasX, canvasY, pixelRadius, 0, Math.PI * 2);
-    paintCtx.clip();
-    
-    paintCtx.drawImage(
-        textureImages[texture],
-        canvasX - pixelRadius,
-        canvasY - pixelRadius,
-        pixelRadius * 2,
-        pixelRadius * 2
-    );
+    paintCtx.fill();
 
-    paintCtx.restore();
+    // Tell Three.js to upload the updated canvas to the GPU
     canvasTexture.needsUpdate = true;
 }
 
-// The rest of the file (randomize, applyHeightmapTemplate, etc.) is restored to use the tile-based logic.
+
 export function randomizeTerrain(appState) {
     if (!appState.terrainMesh) return;
     const arr = appState.terrainMesh.geometry.attributes.position.array;
@@ -172,8 +167,6 @@ export function randomizeTerrain(appState) {
 export function applyHeightmapTemplate(name, appState) {
     if (!appState.terrainMesh) return;
     const { terrainMesh, ball, config } = appState;
-    // --- RESTORED LOGIC ---
-    // Use the config's tile count, not the geometry's segments.
     const { TILES_X, TILES_Y } = config;
 
     const pos = terrainMesh.geometry.attributes.position.array;
@@ -201,7 +194,7 @@ export function applyHeightmapTemplate(name, appState) {
     }
     terrainMesh.geometry.attributes.position.needsUpdate = true;
     terrainMesh.geometry.computeVertexNormals();
-    rebuildEdges(appState.terrainGroup, terrainMesh);
+    rebuildEdges(appState.terrainGroup, appState.terrainMesh);
     if (ball) ball.refresh();
 }
 
