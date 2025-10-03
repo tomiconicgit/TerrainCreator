@@ -18,7 +18,6 @@ async function startApp() {
         camera: null,
         controls: null,
         dirLight: null,
-        // ambientLight: null, // REMOVED
         lightTarget: null,
         terrainGroup: null,
         terrainMesh: null,
@@ -84,8 +83,7 @@ async function startApp() {
     });
 
     renderer.setAnimationLoop(() => {
-        // The custom shader uniform update block has been removed.
-
+        // Shader uniform updates have been removed
         if (appState.camFollowEnabled && appState.ball?.mesh) {
             controls.lookAt(appState.ball.mesh.position);
         }
