@@ -2,30 +2,33 @@
 // Sky is created directly from local vendor/three.sky.js (no src/sky.js wrapper)
 import BallMarker from './character.js';
 
-// -- Error overlay --
-// If bootstrap is active, don't draw our own overlay; let bootstrap capture it.
-function showErrorOverlay(msg, err) {
-  if (window.__tcBootstrapActive) {
-    try { console.error('MappedUp error (suppressed overlay):', msg, err); } catch (_) {}
-    return;
-  }
-  var pre = (err && (err.stack || err.message)) ? '\n\n' + (err.stack || err.message) : '';
-  var el = document.createElement('div');
-  el.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(10,12,16,.94);' +
-    'color:#fff;font-family:ui-monospace,Menlo,monospace;padding:18px;overflow:auto;white-space:pre-wrap';
-  el.textContent = 'MappedUp error: ' + msg + pre;
-  document.body.appendChild(el);
-}
-
 (function () {
+  // -- Error overlay --
+  function showErrorOverlay(msg, err) {
+    if (window.__tcBootstrapActive) {
+      try { console.error('MappedUp error (suppressed overlay):', msg, err); } catch (_) {}
+      return;
+    }
+    var pre = (err && (err.stack || err.message)) ? '\n\n' + (err.stack || err.message) : '';
+    var el = document.createElement('div');
+    el.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(10,12,16,.94);' +
+      'color:#fff;font-family:ui-monospace,Menlo,monospace;padding:18px;overflow:auto;white-space:pre-wrap';
+    el.textContent = 'MappedUp error: ' + msg + pre;
+    document.body.appendChild(el);
+  }
+
   // use a promise chain instead of top-level async arrow
   var THREE, Sky;
+  var navLockLoaded = false;
 
   import('three').then(function (mod) {
     THREE = mod;
     return import('../vendor/three.sky.js');
   }).then(function (modSky) {
     Sky = modSky.Sky;
+    // Try to load NavLock (non-fatal if missing)
+    return import('./navlock.js').then(function () { navLockLoaded = true; }).catch(function(){ navLockLoaded = false; });
+  }).then(function () {
     startApp();
   }).catch(function (e) {
     showErrorOverlay('Failed to import libraries.', e);
@@ -41,11 +44,13 @@ function showErrorOverlay(msg, err) {
     var MIN_H = -200, MAX_H = 300;
     var raycaster = new THREE.Raycaster();
 
-    // Real-world-ish cues (minimal, no unit overhaul):
-    // Treat "one tile = a spot that fits a 6ft person".
-    var CHAR_HEIGHT_UNITS = TILE_SIZE * 1.0; // 1 tile height ~ "6ft"
-    var TREE_MIN_RATIO = 10 / 6;             // ~1.67
-    var TREE_MAX_RATIO = 15 / 6;             // 2.5
+    // Character / tree scale cues
+    var CHAR_HEIGHT_UNITS = TILE_SIZE * 1.0; // 1 tile ~ "6ft"
+    var TREE_MIN_RATIO = 10 / 6;             // 1.67x
+    var TREE_MAX_RATIO = 15 / 6;             // 2.5x
+
+    // Tap-to-move allow flag (tied to NavLock)
+    var allowTapMove = true; // NavLock ON => set to false
 
     // ---- Renderer / Scene / Camera ----
     var canvas = document.getElementById('c');
@@ -74,12 +79,20 @@ function showErrorOverlay(msg, err) {
     var camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 20000);
     camera.position.set(600, 450, 600);
 
-    // Minimal orbit controls with enable toggle
+    // ---- Follow camera limits (dynamic) ----
+    // We keep a dynamic min/max radius and re-evaluate when world size changes
+    var camFollowEnabled = true;
+    var camMinRadius = 30;     // will be refined later
+    var camMaxRadius = 5000;   // will be refined later
+
+    // Minimal orbit controls with enable toggle + dynamic bounds + follow target
     function MiniOrbit(cam, dom) {
       this.enabled = true;
       this.cam = cam; this.dom = dom; this.target = new THREE.Vector3(0, 0, 0);
       this.sph = new THREE.Spherical().setFromVector3(cam.position.clone().sub(this.target));
       this.dt = 0; this.dp = 0; this.dr = 0; this.damp = .1; this.rot = .0025; this.zoom = .25; this.ptrs = new Map();
+      this.minRadius = 30; // updated later
+      this.maxRadius = 5000;
 
       var self = this;
       dom.addEventListener('pointerdown', function (e) {
@@ -100,6 +113,11 @@ function showErrorOverlay(msg, err) {
         self.dr += e.deltaY * self.zoom;
       }, { passive: false });
     }
+    MiniOrbit.prototype.setBounds = function(minR, maxR){
+      this.minRadius = Math.max(1, minR);
+      this.maxRadius = Math.max(this.minRadius + 1, maxR);
+    };
+    MiniOrbit.prototype.lookAt = function(v3){ this.target.copy(v3); };
     MiniOrbit.prototype.update = function () {
       if (!this.enabled) return;
       this.sph.theta += this.dt * (1 - this.damp);
@@ -108,16 +126,15 @@ function showErrorOverlay(msg, err) {
       this.dt *= this.damp; this.dp *= this.damp; this.dr *= this.damp;
       var eps = 1e-3;
       this.sph.phi = Math.max(eps, Math.min(Math.PI / 2 - 0.05, this.sph.phi));
-      this.sph.radius = Math.max(50, Math.min(5000, this.sph.radius));
+
+      // clamp radius using dynamic bounds
+      this.sph.radius = Math.max(this.minRadius, Math.min(this.maxRadius, this.sph.radius));
+
       var pos = new THREE.Vector3().setFromSpherical(this.sph).add(this.target);
       this.cam.position.copy(pos); this.cam.lookAt(this.target);
     };
 
     var controls = new MiniOrbit(camera, renderer.domElement);
-
-    // --- NEW: camera follow settings ---
-    var followBall = true;
-    var _tmpVec3 = new THREE.Vector3();
 
     // ---- Lights ----
     var dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
@@ -224,6 +241,15 @@ function showErrorOverlay(msg, err) {
 
     function planeWorldSize() { return { W: TILES_X * TILE_SIZE, H: TILES_Y * TILE_SIZE }; }
 
+    function updateCameraBounds() {
+      // min: get really close to character; max: see whole terrain comfortably
+      var spanTiles = Math.max(TILES_X, TILES_Y);
+      var worldSpan = Math.max(100, spanTiles) * TILE_SIZE;
+      camMinRadius = Math.max(CHAR_HEIGHT_UNITS * 0.6, TILE_SIZE * 0.8); // close to “person”
+      camMaxRadius = Math.max(worldSpan * 1.2, 1500);
+      controls.setBounds(camMinRadius, camMaxRadius);
+    }
+
     function updateSkyBounds() {
       if (!sky) return;
       var spanTiles = Math.max(TILES_X, TILES_Y);
@@ -249,7 +275,7 @@ function showErrorOverlay(msg, err) {
 
       rebuildEdges();
 
-      // ball fits a tile (keep your visual, but nudge radius to read as a "6ft person spot")
+      // Ball fits a tile (character spot)
       var ballRadius = Math.max(6, Math.min(TILE_SIZE * 0.45, CHAR_HEIGHT_UNITS * 0.35));
       if (ball && typeof ball.dispose === 'function') ball.dispose();
       ball = new BallMarker({
@@ -262,9 +288,12 @@ function showErrorOverlay(msg, err) {
         color: 0xff2b2b
       });
 
-      // --- NEW: snap orbit target to the character on (re)build ---
-      try { if (ball && ball.mesh) controls.target.copy(ball.mesh.position); } catch (_) {}
+      // Camera follow target = ball position
+      if (camFollowEnabled && ball && ball.mesh && ball.mesh.position) {
+        controls.lookAt(ball.mesh.position);
+      }
 
+      updateCameraBounds();
       updateSkyBounds();
     }
 
@@ -605,9 +634,10 @@ function showErrorOverlay(msg, err) {
       }
     }
 
-    // --- Tap-to-move character when Sculpt is OFF ---
+    // --- Tap-to-move character when Sculpt is OFF (and NavLock allows) ---
     renderer.domElement.addEventListener('pointerdown', function (ev) {
-      if (sculptOn.checked) return; // don't hijack sculpting gesture
+      if (sculptOn.checked) return;             // don't hijack sculpting gesture
+      if (!allowTapMove) return;                // paused by NavLock
       if (!terrainMesh || !ball) return;
       var rect = renderer.domElement.getBoundingClientRect();
       var x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
@@ -619,33 +649,36 @@ function showErrorOverlay(msg, err) {
       var ij = worldToTile(local.x, local.z);
       ball.placeOnTile(ij.i, ij.j);
 
-      // --- NEW: nudge target toward the ball immediately on tap for snappier feel
-      if (followBall && ball && ball.mesh && typeof controls.target.lerp === 'function') {
-        controls.target.lerp(ball.mesh.position, 0.5);
+      // keep camera following the character’s new tile
+      if (camFollowEnabled && ball && ball.mesh && ball.mesh.position) {
+        controls.lookAt(ball.mesh.position);
       }
     });
     // --- END tap-to-move ---
 
-    // ---- Boot / Loop / SW ----
-    buildTerrain();                                  // also triggers updateSkyBounds()
+    // ---- Boot ----
+    buildTerrain();                                  // also triggers sky/camera bounds
     updateSky(100 * TILE_SIZE, new THREE.Vector3()); // visible from first frame
 
+    // ---- Resize ----
     window.addEventListener('resize', function () {
       renderer.setSize(window.innerWidth, window.innerHeight);
       camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+      updateCameraBounds();
       updateSkyBounds();
     });
 
-    // --- NEW: follow the ball each frame by lerping the orbit target ---
+    // ---- Frame loop: keep following the ball smoothly ----
     renderer.setAnimationLoop(function () {
-      if (followBall && ball && ball.mesh && typeof controls.target.lerp === 'function') {
-        _tmpVec3.copy(ball.mesh.position);
-        controls.target.lerp(_tmpVec3, 0.12); // 0..1 (higher = snappier follow)
+      if (camFollowEnabled && ball && ball.mesh && ball.mesh.position) {
+        // Keep controls target on the character so zoom/orbit is centered there
+        controls.lookAt(ball.mesh.position);
       }
       controls.update();
       renderer.render(scene, camera);
     });
 
+    // ---- PWA install ----
     if ('serviceWorker' in navigator) try { navigator.serviceWorker.register('./sw.js').catch(function () {}); } catch (_) {}
     var promptEvt = null;
     window.addEventListener('beforeinstallprompt', function (e) { try { e.preventDefault(); } catch (_) {} promptEvt = e; });
@@ -655,6 +688,17 @@ function showErrorOverlay(msg, err) {
         if (promptEvt && typeof promptEvt.prompt === 'function') { promptEvt.prompt(); promptEvt = null; }
         else { alert('To install: Share > Add to Home Screen'); }
       });
+    }
+
+    // ---- NavLock integration (optional; non-fatal if file missing) ----
+    if (navLockLoaded) {
+      // Listen for toggle changes from src/navlock.js
+      window.addEventListener('navlock-change', function (e) {
+        var paused = !!(e && e.detail && e.detail.paused);
+        allowTapMove = !paused;  // paused=true => disallow tap-to-move
+      });
+      // If your navlock also dispatches an initial state event on load, we’ll catch it.
+      // Otherwise, default allowTapMove=true (as above).
     }
   }
 })();
