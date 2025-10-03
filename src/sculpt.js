@@ -22,7 +22,6 @@ function applySculpt(hitPoint, appState, uiState) {
     const local = terrainMesh.worldToLocal(hitPoint.clone());
     const { i, j } = worldToTile(local.x, local.z, config);
     
-    // Smooth
     if (uiState.mode === 'smooth') {
         const posAttr = terrainMesh.geometry.attributes.position, arr = posAttr.array;
         const vpr = TILES_X + 1, set = new Set();
@@ -34,7 +33,6 @@ function applySculpt(hitPoint, appState, uiState) {
         const avg = cnt ? sum / cnt : 0;
         set.forEach(vi => { const yi = vi * 3 + 1; arr[yi] += (avg - arr[yi]) * 0.15; });
     }
-    // Raise/Lower
     else {
         const posAttr = terrainMesh.geometry.attributes.position, arr = posAttr.array;
         const map = new Map();
@@ -102,9 +100,7 @@ export function initTapToMove(appState, getUiState, getAllowTapMove) {
     const { renderer, camera } = appState;
     renderer.domElement.addEventListener('pointerdown', (ev) => {
         const uiState = getUiState();
-        // EXIT if sculpting, painting, or navLock is active
         if (uiState.sculptOn || uiState.paintTexture || !getAllowTapMove()) return;
-                
         if (!appState.terrainMesh || !appState.ball) return;
         
         const rect = renderer.domElement.getBoundingClientRect();
@@ -128,9 +124,7 @@ export function initTapToPaint(appState, getUiState) {
     const { renderer, camera } = appState;
     renderer.domElement.addEventListener('pointerdown', (ev) => {
         const uiState = getUiState();
-        // EXIT if not in paint mode or if sculpting is on
         if (!uiState.paintTexture || uiState.sculptOn) return;
-
         if (!appState.terrainMesh) return;
         
         const rect = renderer.domElement.getBoundingClientRect();
@@ -143,13 +137,8 @@ export function initTapToPaint(appState, getUiState) {
             const local = appState.terrainMesh.worldToLocal(hits[0].point.clone());
             const { i, j } = worldToTile(local.x, local.z, appState.config);
             
-            // Call the paint function
             paintTextureOnTile(i, j, uiState.paintTexture, uiState.paintRadius, appState);
-
-            // Trigger grass regeneration
-            if (appState.grass) {
-                appState.grass.regenerate();
-            }
+            // Grass regeneration call is no longer needed here
         }
     });
 }
