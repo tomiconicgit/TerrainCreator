@@ -5,10 +5,105 @@ import BallMarker from './character.js';
 
 let edgesHelper = null;
 
-const TEXTURE_COLORS = {
-    grass: new THREE.Color(0x559040),
+// Define texture blend weights. R=Leaves, G=Grass, B=Sand.
+const TEXTURE_INFO = {
+    grass: { weight: new THREE.Vector3(0, 1, 0) },
+    sand:  { weight: new THREE.Vector3(0, 0, 1) },
+    leaves:{ weight: new THREE.Vector3(1, 0, 0) },
+    // Gravel and stone painting is disabled in this 3-texture setup
+    gravel:{ weight: new THREE.Vector3(0, 1, 0) },
+    stone: { weight: new THREE.Vector3(0, 1, 0) },
 };
 const DEFAULT_TEXTURE = 'grass';
+
+// --- UPGRADED SHADER WITH BLENDING & DISPLACEMENT ---
+const vertexShader = `
+  uniform sampler2D uLeavesDisplacement;
+  uniform float uDisplacementScale;
+
+  varying vec2 vUv;
+  varying vec3 vColor;
+  varying vec3 vWorldNormal;
+  varying vec3 vWorldPosition;
+  varying mat3 vTBN;
+
+  void main() {
+    vUv = uv;
+    vColor = color;
+
+    // --- DISPLACEMENT LOGIC ---
+    // Sample the displacement map
+    float displacement = texture2D(uLeavesDisplacement, vUv).r;
+    // Only apply displacement where leaves are painted (using red vertex color)
+    vec3 displacedPosition = position + normal * displacement * uDisplacementScale * vColor.r;
+
+    vec4 worldPosition = modelMatrix * vec4(displacedPosition, 1.0);
+    vWorldPosition = worldPosition.xyz;
+    
+    vec3 worldNormal = normalize(vec3(modelMatrix * vec4(normal, 0.0)));
+    vWorldNormal = worldNormal;
+    
+    // For Normal Mapping
+    vec3 worldTangent = normalize(vec3(modelMatrix * vec4(tangent.xyz, 0.0)));
+    vec3 worldBitangent = cross(worldNormal, worldTangent) * tangent.w;
+    vTBN = mat3(worldTangent, worldBitangent, worldNormal);
+
+    gl_Position = projectionMatrix * viewMatrix * worldPosition;
+  }
+`;
+
+const fragmentShader = `
+  uniform sampler2D uGrassDiffuse;
+  uniform sampler2D uSandDiffuse;
+  uniform sampler2D uLeavesDiffuse;
+  uniform sampler2D uLeavesNormal;
+  uniform sampler2D uLeavesRoughness;
+
+  uniform vec3 uSunDirection;
+  uniform vec3 uDirLightColor;
+  uniform float uDirLightIntensity;
+
+  varying vec2 vUv;
+  varying vec3 vColor; // Blend weights (R: leaves, G: grass, B: sand)
+  varying vec3 vWorldNormal;
+  varying vec3 vWorldPosition;
+  varying mat3 vTBN;
+
+  void main() {
+    float textureScale = 20.0;
+    vec3 grassColor = texture2D(uGrassDiffuse, vUv * textureScale).rgb;
+    vec3 sandColor = texture2D(uSandDiffuse, vUv * textureScale).rgb;
+    vec3 leavesColor = texture2D(uLeavesDiffuse, vUv * textureScale).rgb;
+
+    // Blend diffuse colors based on vertex color weights
+    vec3 baseColor = mix(grassColor, sandColor, vColor.b);
+    vec3 blendedDiffuse = mix(baseColor, leavesColor, vColor.r);
+
+    // Normal Mapping
+    vec3 tangentSpaceNormal = texture2D(uLeavesNormal, vUv * textureScale).xyz * 2.0 - 1.0;
+    vec3 perturbedNormal = normalize(vTBN * tangentSpaceNormal);
+    vec3 finalNormal = normalize(mix(vWorldNormal, perturbedNormal, vColor.r));
+
+    // Roughness Blending
+    float leavesRoughness = texture2D(uLeavesRoughness, vUv * textureScale).r;
+    float blendedRoughness = mix(0.9, leavesRoughness, vColor.r);
+
+    // Lighting
+    vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
+    float skyFactor = dot(finalNormal, vec3(0.0, 1.0, 0.0)) * 0.5 + 0.5;
+    vec3 skyLight = mix(vec3(0.3, 0.2, 0.1), vec3(0.4, 0.5, 0.7), skyFactor) * 0.5;
+    float diffuseStrength = max(0.0, dot(finalNormal, uSunDirection));
+    vec3 diffuse = diffuseStrength * uDirLightColor * uDirLightIntensity;
+    vec3 halfwayDir = normalize(uSunDirection + viewDirection);
+    float spec = pow(max(dot(finalNormal, halfwayDir), 0.0), 32.0);
+    vec3 specular = (spec * (1.0 - blendedRoughness)) * uDirLightColor * uDirLightIntensity * 0.5;
+
+    vec3 lighting = skyLight + diffuse + specular;
+    vec3 finalColor = pow(blendedDiffuse, vec3(2.2)) * lighting;
+
+    gl_FragColor = vec4(pow(finalColor, vec3(1.0/2.2)), 1.0);
+  }
+`;
 
 
 function rebuildEdges(terrainGroup, terrainMesh) {
@@ -39,40 +134,57 @@ export function createTerrain(appState) {
     geom.rotateX(-Math.PI / 2);
     geom.computeTangents();
 
-    // --- Load Your PBR Textures ---
+    // --- Load Textures ---
     const textureLoader = new THREE.TextureLoader();
-    // -- UPDATED loadTexture FUNCTION --
-    const loadTexture = (path, isColorTexture = false, repeat = 20) => {
+    const loadTexture = (path) => {
         const texture = textureLoader.load(path);
         texture.wrapS = THREE.RepeatWrapping;
         texture.wrapT = THREE.RepeatWrapping;
-        texture.repeat.set(repeat, repeat);
-        // This is the crucial fix for the white terrain
-        if (isColorTexture) {
-            texture.colorSpace = THREE.SRGBColorSpace;
-        }
         return texture;
     };
     
-    // --- Create the MeshStandardMaterial ---
-    const terrainMaterial = new THREE.MeshStandardMaterial({
-        // Diffuse / Color Map - mark it as a color texture
-        map: loadTexture('./src/assets/textures/leaves-diffuse.jpg', true),
-        // Roughness Map - not a color texture
-        roughnessMap: loadTexture('./src/assets/textures/leaves-roughness.jpg', false),
-        // Normal Map - not a color texture
-        normalMap: loadTexture('./src/assets/textures/leaves-normal.png', false),
-        normalScale: new THREE.Vector2(0.5, 0.5), 
-    });
+    // Using placeholder textures for grass/sand. Replace with your own images if you have them.
+    const createPlaceholderTexture = (color) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1; canvas.height = 1;
+        const context = canvas.getContext('2d');
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        return texture;
+    };
+    
+    const leavesDiffuse = loadTexture('./assets/textures/leaves-diffuse.jpg');
+    leavesDiffuse.colorSpace = THREE.SRGBColorSpace; // Set color space for the diffuse map
+
+    const terrainMaterial = new THREE.ShaderMaterial({
+        uniforms: {
+          // Texture uniforms
+          uGrassDiffuse: { value: createPlaceholderTexture('#559040') },
+          uSandDiffuse: { value: createPlaceholderTexture('#dacfa0') },
+          uLeavesDiffuse: { value: leavesDiffuse },
+          uLeavesNormal: { value: loadTexture('./assets/textures/leaves-normal.png') },
+          uLeavesRoughness: { value: loadTexture('./assets/textures/leaves-roughness.jpg') },
+          uLeavesDisplacement: { value: loadTexture('./assets/textures/leaves-displacement.jpg') },
+          uDisplacementScale: { value: 10.0 }, // How high the leaves "pop out". Adjust this value!
+          // Lighting uniforms
+          uSunDirection: { value: new THREE.Vector3(0.707, 0.707, 0) },
+          uDirLightColor: { value: new THREE.Color(0xffffff) },
+          uDirLightIntensity: { value: 1.0 },
+        },
+        vertexShader: vertexShader,
+        fragmentShader: fragmentShader,
+        vertexColors: true,
+      });
     appState.terrainMaterial = terrainMaterial;
     
-    // Set a placeholder vertex color attribute
     const vertexCount = geom.attributes.position.count;
     geom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(vertexCount * 3), 3));
     const colors = geom.attributes.color;
-    const defaultColor = TEXTURE_COLORS[DEFAULT_TEXTURE];
+    const defaultWeight = TEXTURE_INFO[DEFAULT_TEXTURE].weight;
     for (let i = 0; i < vertexCount; i++) {
-        colors.setXYZ(i, defaultColor.r, defaultColor.g, defaultColor.b);
+        colors.setXYZ(i, defaultWeight.x, defaultWeight.y, defaultWeight.z);
     }
     
     const mesh = new THREE.Mesh(geom, terrainMaterial);
@@ -102,9 +214,49 @@ export function createTerrain(appState) {
     });
 }
 
-// Painting logic is disabled
+// --- RE-ENABLING PAINTING LOGIC ---
 export function paintTextureOnTile(ci, cj, texture, radius, appState) {
-    return; 
+    const { terrainMesh, config, ball } = appState;
+    if (!terrainMesh || !texture) return;
+
+    const colorAttr = terrainMesh.geometry.attributes.color;
+    const brushWeight = TEXTURE_INFO[texture]?.weight;
+    if (!brushWeight) return;
+
+    const vpr = config.TILES_X + 1;
+    const getTileVertexIndices = (i, j) => {
+        const tl = j * vpr + i; const tr = tl + 1;
+        const bl = (j + 1) * vpr + i; const br = bl + 1;
+        return [tl, tr, bl, br];
+    };
+    
+    const existingWeight = new THREE.Vector3();
+    for (let j = cj - radius; j <= cj + radius; j++) {
+        for (let i = ci - radius; i <= ci + radius; i++) {
+            if (i >= 0 && i < config.TILES_X && j >= 0 && j < config.TILES_Y) {
+                const dist = Math.hypot(i - ci, j - cj);
+                if (dist <= radius) {
+                    const falloff = Math.max(0, 1.0 - (dist / radius));
+                    const blendStrength = falloff * falloff * 0.1;
+                    
+                    const vertexIndices = getTileVertexIndices(i, j);
+                    vertexIndices.forEach(vi => {
+                        existingWeight.fromBufferAttribute(colorAttr, vi);
+                        existingWeight.lerp(brushWeight, blendStrength);
+
+                        // Normalize the weights so they sum to 1
+                        const total = existingWeight.x + existingWeight.y + existingWeight.z;
+                        if (total > 0.0) {
+                            existingWeight.divideScalar(total);
+                        }
+                        colorAttr.setXYZ(vi, existingWeight.x, existingWeight.y, existingWeight.z);
+                    });
+                }
+            }
+        }
+    }
+    colorAttr.needsUpdate = true;
+    if (ball) ball.refresh();
 }
 
 export function randomizeTerrain(appState) {
@@ -152,7 +304,7 @@ export function applyHeightmapTemplate(name, appState) {
     if (ball) ball.refresh();
 }
 
-// Noise functions remain the same
+// Noise functions
 const _clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const _smooth = (t) => t * t * (3 - 2 * t);
 const _perm = new Uint8Array(512);
