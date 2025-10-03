@@ -34,11 +34,9 @@ const vertexShader = `
 `;
 
 const fragmentShader = `
-  // NEW UNIFORMS FOR REAL SCENE LIGHTING
   uniform vec3 uSunDirection;
   uniform vec3 uDirLightColor;
   uniform float uDirLightIntensity;
-  uniform vec3 uAmbientLightColor;
 
   varying vec3 vNormal;
   varying vec3 vColor;
@@ -61,9 +59,7 @@ const fragmentShader = `
   }
 
   void main() {
-    // Convert incoming sRGB vertex color to linear space for correct lighting
     vec3 linearBaseColor = pow(vColor, vec3(2.2));
-    
     bool isGrass = linearBaseColor.g > linearBaseColor.r * 1.1 && linearBaseColor.g > linearBaseColor.b * 1.1;
 
     if (isGrass) {
@@ -73,29 +69,30 @@ const fragmentShader = `
       linearBaseColor = mix(grassDark, grassLight, mottling);
     }
     
-    // ======== UPGRADED LIGHTING CALCULATION ========
+    // ======== NEW UNIFIED SKY/SUN LIGHTING MODEL ========
     vec3 normal = normalize(vNormal);
     
-    // Ambient light from scene
-    vec3 ambient = uAmbientLightColor;
+    // 1. Hemisphere (Sky) Light -> Serves as Ambient Light
+    // Models light from the sky dome (blueish) and bounced light from the ground (brownish)
+    float skyFactor = dot(normal, vec3(0.0, 1.0, 0.0)) * 0.5 + 0.5;
+    vec3 skyLightColor = vec3(0.3, 0.4, 0.6);
+    vec3 groundLightColor = vec3(0.5, 0.25, 0.1);
+    vec3 hemisphereLight = mix(groundLightColor, skyLightColor, skyFactor) * 0.4;
 
-    // Diffuse light from scene sun
+    // 2. Direct Sun Light
     float diffuseStrength = max(0.0, dot(normal, uSunDirection));
     vec3 diffuse = diffuseStrength * uDirLightColor * uDirLightIntensity;
 
-    // Specular highlight
+    // 3. Specular Highlight
     vec3 halfwayDir = normalize(uSunDirection + vViewDirection);
     float spec = pow(max(dot(normal, halfwayDir), 0.0), 32.0);
     float specularStrength = isGrass ? 0.2 : 0.5;
     vec3 specular = specularStrength * spec * uDirLightColor * uDirLightIntensity;
     
-    // Combine lighting components
-    vec3 lighting = ambient + diffuse + specular;
+    // Combine all light sources
+    vec3 lighting = hemisphereLight + diffuse + specular;
 
-    // Apply lighting to the linear base color
     vec3 finalColor = linearBaseColor * lighting;
-
-    // The renderer will handle the final conversion from linear to sRGB screen space
     gl_FragColor = vec4(finalColor, 1.0);
   }
 `;
@@ -139,10 +136,8 @@ export function createTerrain(appState) {
       terrainMaterial = new THREE.ShaderMaterial({
         uniforms: {
           uSunDirection: { value: new THREE.Vector3(0.707, 0.707, 0) },
-          // Add uniforms to receive light data from JS
-          uDirLightColor: { value: new THREE.Color() },
+          uDirLightColor: { value: new THREE.Color(0xffffff) },
           uDirLightIntensity: { value: 1.0 },
-          uAmbientLightColor: { value: new THREE.Color() }
         },
         vertexShader: vertexShader,
         fragmentShader: fragmentShader,
@@ -209,7 +204,6 @@ export function paintTextureOnTile(ci, cj, texture, radius, appState) {
                         existingColor.lerp(brushColor, blendStrength);
                         colorAttr.setXYZ(vi, existingColor.r, existingColor.g, existingColor.b);
 
-                        // --- NEW: PERLIN NOISE DISPLACEMENT FOR GRASS AND SAND ---
                         if (texture === 'grass' || texture === 'sand') {
                             const x = positionAttr.getX(vi);
                             const z = positionAttr.getZ(vi);
@@ -217,14 +211,13 @@ export function paintTextureOnTile(ci, cj, texture, radius, appState) {
                             let amplitude = 0.0;
 
                             if(texture === 'grass') {
-                                frequency = 0.8; // Higher frequency for bumpy grass
+                                frequency = 0.8;
                                 amplitude = 0.3; 
-                            } else { // sand
-                                frequency = 0.1; // Lower frequency for gentle dunes
+                            } else {
+                                frequency = 0.1;
                                 amplitude = 0.2;
                             }
 
-                            // _perlin2 returns a value between -1 and 1
                             const noise = _perlin2(x * frequency, z * frequency);
                             const displacement = noise * amplitude * blendStrength;
                             
