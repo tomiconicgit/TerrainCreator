@@ -3,67 +3,173 @@
   --fg: #dbe3f1;
   --muted: #93a0b5;
   --accent: #00adff;
-  --glass: rgba(255,255,255,0.06);
-  --border: rgba(255,255,255,0.12);
+
+  /* OPAQUE panel colors */
+  --panel-bg: #121720;           /* solid, no transparency */
+  --panel-border: #1f2a3a;
+  --panel-shadow: 0 8px 24px rgba(0,0,0,.35);
+
   --safe-top: env(safe-area-inset-top);
   --safe-bottom: env(safe-area-inset-bottom);
+  --safe-left: env(safe-area-inset-left);
+  --safe-right: env(safe-area-inset-right);
 }
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: rgba(0,0,0,0); }
+html, body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+  overscroll-behavior: contain;                 /* reduce iOS bounce */
+  padding-left:  max(8px, var(--safe-left));
+  padding-right: max(8px, var(--safe-right));
+}
 
 /* Canvas behind everything */
 #c { position: fixed; inset: 0; outline: none; touch-action: none; z-index: 0; }
 
-/* Top bar */
-#topbar { position: fixed; top: calc(8px + var(--safe-top)); left: 8px; right: 8px;
-  display:flex; justify-content: space-between; align-items:center; gap:8px;
-  padding:10px 12px; background: var(--glass); border:1px solid var(--border);
-  backdrop-filter: blur(12px); border-radius: 14px; z-index: 10; }
-.brand { font-weight: 700; letter-spacing: 0.5px; }
-.pill { padding:8px 12px; border-radius: 999px; border:1px solid var(--border); background: transparent; color: var(--fg); }
-.pill:active { transform: translateY(1px); }
-
-/* Bottom card panel with tabs */
-#panel.card {
-  position: fixed; left: 8px; right: 8px; bottom: calc(8px + var(--safe-bottom));
-  z-index: 10; pointer-events: auto; background: var(--glass); border:1px solid var(--border);
-  border-radius: 16px; padding: 0; overflow: hidden; backdrop-filter: blur(12px);
+/* Top bar — OPAQUE */
+#topbar {
+  position: fixed;
+  top: calc(8px + var(--safe-top));
+  left: 8px; right: 8px;
+  display:flex; justify-content: space-between; align-items:center; gap:10px;
+  padding: 12px 14px;
+  background: var(--panel-bg);                  /* solid */
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  z-index: 10;
+  box-shadow: var(--panel-shadow);
 }
-.tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; border-bottom: 1px solid var(--border); }
-.tab { padding: 10px; background: transparent; border: 0; color: var(--muted); font-weight: 600; }
-.tab.on { color: var(--fg); background: rgba(255,255,255,0.04); }
+.brand { font-weight: 700; letter-spacing: 0.5px; }
+
+/* Buttons default to touch-friendly sizes */
+button, .pill {
+  min-height: 44px;                             /* iPhone target size */
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  background: #18202d;
+  color: var(--fg);
+  font-weight: 600;
+  font-size: 16px;                              /* prevent iOS zoom-on-tap */
+  line-height: 1.1;
+}
+.pill { background: #18202d; }
+button:active, .pill:active { transform: translateY(1px); }
+
+/* Bottom control panel — OPAQUE */
+#panel.card {
+  position: fixed;
+  left: 8px; right: 8px; bottom: calc(8px + var(--safe-bottom));
+  z-index: 10;
+  pointer-events: auto;
+  background: var(--panel-bg);                  /* solid */
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: var(--panel-shadow);
+}
+
+/* Tabs */
+.tabs {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 0;
+  border-bottom: 1px solid var(--panel-border);
+}
+.tab {
+  padding: 12px 8px;
+  background: transparent; border: 0;
+  color: var(--muted); font-weight: 700; font-size: 15px;
+  min-height: 44px;
+}
+.tab.on { color: var(--fg); background: #0f1621; }   /* solid active state */
 .tab:active { transform: translateY(1px); }
 
-.tabcontent { display: none; padding: 12px; max-height: 38vh; overflow: auto; }
+.tabcontent {
+  display: none;
+  padding: 12px;
+  max-height: 45vh;                              /* a bit taller for phones */
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;             /* smooth iOS scroll */
+}
 .tabcontent.on { display: block; }
 
-.section { margin-bottom: 10px; }
+/* Sections / rows */
+.section { margin-bottom: 12px; }
 .section.muted { color: var(--muted); }
 
-.row { display:flex; align-items:center; gap:12px; margin:10px 0; }
+.row { display:flex; align-items:center; gap:12px; margin:12px 0; }
 .row-split { justify-content: space-between; }
 label { color: var(--muted); font-size: 14px; }
 
-.input-pair { display:flex; align-items:center; gap:8px; }
-.input-pair input { width: 96px; padding:8px; border-radius:10px; border:1px solid var(--border); background:#121720; color:var(--fg); }
+/* Inputs: touch size + iOS number zoom fixes */
+.input-pair { display:flex; align-items:center; gap:10px; }
+
+input[type="number"], input[type="text"], input[type="decimal"] {
+  width: 108px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  background: #0f1621;
+  color: var(--fg);
+  font-size: 16px;                               /* prevent iOS zoom */
+  -webkit-appearance: none;
+  appearance: none;
+}
 .times { color: var(--muted); }
 
-.spinner { display:flex; align-items:center; gap:8px; }
-.spinner input { width: 92px; padding:8px; border-radius:10px; border:1px solid var(--border); background:#121720; color:var(--fg); text-align:center; }
-.spinner button { width:38px; height:38px; border-radius:10px; border:1px solid var(--border); background:#121720; color:var(--fg); font-weight:700; }
-.spinner button:active { transform: translateY(1px); }
+/* Remove spinner arrows on iOS/Chrome */
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type=number] { -moz-appearance: textfield; }
 
-.grid { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
-button { padding:10px 12px; border-radius: 10px; border:1px solid var(--border); background:#121720; color:var(--fg); font-weight:600; }
-button.primary { background: linear-gradient(180deg, #00adff, #007ee0); border-color: #006cbf; color: white; }
-button.toggle.on { outline: 2px solid var(--accent); }
+/* Spinner controls */
+.spinner { display:flex; align-items:center; gap:10px; }
+.spinner input {
+  width: 104px; padding: 10px 12px; border-radius:12px;
+  border: 1px solid var(--panel-border); background:#0f1621; color:var(--fg);
+  text-align:center; font-size:16px;
+}
+.spinner button {
+  width: 44px; height: 44px;                     /* touch target */
+  border-radius:12px; border:1px solid var(--panel-border);
+  background:#18202d; color:var(--fg); font-weight:800; font-size:18px;
+}
+
+/* Button grid */
+.grid { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+button.primary {
+  background: linear-gradient(180deg, #00adff, #007ee0);
+  border-color: #006cbf;
+  color: white;
+}
+button.toggle.on { outline: 2px solid var(--accent); outline-offset: 0; }
 
 /* Switch for Sculpt enable */
-.switch { position: relative; display: inline-block; width: 52px; height: 28px; }
+.switch { position: relative; display: inline-block; width: 56px; height: 32px; }
 .switch input { display:none; }
-.slider { position: absolute; cursor: pointer; inset: 0; background:#2a2f3a; border-radius: 999px; transition: .2s; }
-.slider:before { content:""; position:absolute; width:22px; height:22px; left:3px; top:3px; background:#fff; border-radius:50%; transition:.2s; }
+.slider {
+  position: absolute; cursor: pointer; inset: 0; background:#2a2f3a;
+  border-radius: 999px; transition: .2s;
+}
+.slider:before {
+  content:""; position:absolute; width:26px; height:26px; left:3px; top:3px;
+  background:#fff; border-radius:50%; transition:.2s;
+}
 .switch input:checked + .slider { background: #1f8ae6; }
 .switch input:checked + .slider:before { transform: translateX(24px); }
 
 .hint { margin: 8px 4px 0; color: var(--muted); font-size: 12px; }
+
+/* iPhone-specific comfort tweaks */
+@media (hover: none) and (pointer: coarse) {
+  .tab { font-size: 16px; }
+  .grid { gap:12px; }
+  .row { gap:14px; }
+}
+
+/* Ensure UI stays on top of canvas interactions on iOS */
+#panel, #topbar { touch-action: manipulation; pointer-events: auto; }
