@@ -5,7 +5,6 @@ import BallMarker from './character.js';
 
 let edgesHelper = null;
 
-// NOTE: The complex texture info and shaders have been removed.
 const TEXTURE_COLORS = {
     grass: new THREE.Color(0x559040),
 };
@@ -38,34 +37,36 @@ export function createTerrain(appState) {
 
     const geom = new THREE.PlaneGeometry(W, H, TILES_X, TILES_Y);
     geom.rotateX(-Math.PI / 2);
-    // We still compute tangents in case the normal map needs them.
     geom.computeTangents();
 
     // --- Load Your PBR Textures ---
     const textureLoader = new THREE.TextureLoader();
-    const loadTexture = (path, repeat = 20) => {
+    // -- UPDATED loadTexture FUNCTION --
+    const loadTexture = (path, isColorTexture = false, repeat = 20) => {
         const texture = textureLoader.load(path);
         texture.wrapS = THREE.RepeatWrapping;
         texture.wrapT = THREE.RepeatWrapping;
-        // Repeat the texture across the terrain
         texture.repeat.set(repeat, repeat);
+        // This is the crucial fix for the white terrain
+        if (isColorTexture) {
+            texture.colorSpace = THREE.SRGBColorSpace;
+        }
         return texture;
     };
     
     // --- Create the MeshStandardMaterial ---
     const terrainMaterial = new THREE.MeshStandardMaterial({
-        // Diffuse / Color Map
-        map: loadTexture('./src/assets/textures/leaves-diffuse.jpg'), // PATH UPDATED
-        // Roughness Map
-        roughnessMap: loadTexture('./src/assets/textures/leaves-roughness.jpg'), // PATH UPDATED
-        // Normal Map
-        normalMap: loadTexture('./src/assets/textures/leaves-normal.png'), // PATH UPDATED
-        // Adjust normal map intensity if needed
+        // Diffuse / Color Map - mark it as a color texture
+        map: loadTexture('./src/assets/textures/leaves-diffuse.jpg', true),
+        // Roughness Map - not a color texture
+        roughnessMap: loadTexture('./src/assets/textures/leaves-roughness.jpg', false),
+        // Normal Map - not a color texture
+        normalMap: loadTexture('./src/assets/textures/leaves-normal.png', false),
         normalScale: new THREE.Vector2(0.5, 0.5), 
     });
     appState.terrainMaterial = terrainMaterial;
     
-    // Set a placeholder vertex color attribute, as some functions may expect it.
+    // Set a placeholder vertex color attribute
     const vertexCount = geom.attributes.position.count;
     geom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(vertexCount * 3), 3));
     const colors = geom.attributes.color;
@@ -101,9 +102,8 @@ export function createTerrain(appState) {
     });
 }
 
-// --- Painting logic is now disabled as we are not blending textures ---
+// Painting logic is disabled
 export function paintTextureOnTile(ci, cj, texture, radius, appState) {
-    // console.log("Painting is disabled in this material mode.");
     return; 
 }
 
