@@ -5,19 +5,18 @@ import BallMarker from './character.js';
 
 let edgesHelper = null;
 
-// --- A NEW, SIMPLE SHADER FOR PER-TILE TEXTURING ---
+// --- NEW: Subdivisions Per Tile ---
+// This number controls the vertex density. 10 means each tile is a 10x10 grid of smaller quads.
+// Higher numbers = smoother terrain, but lower performance. 10 is a good starting point.
+const SUBDIVISIONS = 10;
+
 const vertexShader = `
   varying vec2 vUv;
   varying vec3 vColor;
 
   void main() {
-    // Pass the vertex color (our texture "switch") to the fragment shader
     vColor = color;
-
-    // Pass the UV coordinates
     vUv = uv;
-
-    // Standard position calculation
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
@@ -30,19 +29,10 @@ const fragmentShader = `
   varying vec3 vColor;
 
   void main() {
-    // fract() gets the fractional part of the UV coordinate.
-    // Since our UVs now go from 0 to 30, fract(vUv) will repeat from 0 to 1 for each tile.
     vec2 tileUv = fract(vUv);
-
-    // Sample both the sand and leaves textures using these repeating tile UVs
     vec3 sandColor = texture2D(uSandTexture, tileUv).rgb;
     vec3 leavesColor = texture2D(uLeavesTexture, tileUv).rgb;
-
-    // The vColor.r is our "switch".
-    // If it's 0 (not painted), it will show sandColor.
-    // If it's 1 (painted with leaves), it will show leavesColor.
     vec3 finalColor = mix(sandColor, leavesColor, vColor.r);
-
     gl_FragColor = vec4(finalColor, 1.0);
   }
 `;
@@ -71,30 +61,27 @@ export function createTerrain(appState) {
     dispose(appState.treesGroup);
     appState.treesGroup = null;
 
-    const geom = new THREE.PlaneGeometry(W, H, TILES_X, TILES_Y);
+    // --- UPDATED: Create a high-resolution geometry ---
+    const widthSegments = TILES_X * SUBDIVISIONS;
+    const heightSegments = TILES_Y * SUBDIVISIONS;
+    const geom = new THREE.PlaneGeometry(W, H, widthSegments, heightSegments);
     geom.rotateX(-Math.PI / 2);
 
-    // --- CRUCIAL UV MODIFICATION ---
-    // This loop remaps the UV coordinates so each tile gets its own 0-1 space.
     const uvs = geom.attributes.uv.array;
     for (let i = 0; i < uvs.length; i += 2) {
         uvs[i] *= TILES_X;
         uvs[i + 1] *= TILES_Y;
     }
 
-    // --- Texture Loading ---
     const textureLoader = new THREE.TextureLoader();
     const loadTexture = (path) => {
         const texture = textureLoader.load(path);
-        // We use the shader for repeating, not the texture properties
         texture.wrapS = THREE.ClampToEdgeWrapping;
         texture.wrapT = THREE.ClampToEdgeWrapping;
         texture.colorSpace = THREE.SRGBColorSpace;
         return texture;
     };
     
-    // NOTE: You'll need to provide a sand texture.
-    // For now, a placeholder color is created. Replace the path if you have an image.
     const createPlaceholderTexture = (color) => {
         const canvas = document.createElement('canvas');
         canvas.width = 1; canvas.height = 1;
@@ -108,9 +95,7 @@ export function createTerrain(appState) {
 
     const terrainMaterial = new THREE.ShaderMaterial({
         uniforms: {
-            uSandTexture: { value: createPlaceholderTexture('#d2b48c') }, // Tan color for sand
-            // You can replace the placeholder above with:
-            // uSandTexture: { value: loadTexture('./src/assets/textures/sand.jpg') },
+            uSandTexture: { value: createPlaceholderTexture('#d2b48c') },
             uLeavesTexture: { value: loadTexture('./src/assets/textures/leaves-diffuse.jpg') },
         },
         vertexShader: vertexShader,
@@ -119,13 +104,10 @@ export function createTerrain(appState) {
     });
     appState.terrainMaterial = terrainMaterial;
     
-    // Initialize vertex colors. All set to 0, so the 'sand' texture will show by default.
-    const vertexCount = (TILES_X + 1) * (TILES_Y + 1);
+    const vertexCount = (widthSegments + 1) * (heightSegments + 1);
     geom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(vertexCount * 3), 3));
     
     const mesh = new THREE.Mesh(geom, terrainMaterial);
-    // This shader isn't lit, so receiveShadow doesn't apply.
-    // We can add lighting back in a later step if needed.
     mesh.receiveShadow = false;
 
     const terrainGroup = new THREE.Group();
@@ -152,48 +134,39 @@ export function createTerrain(appState) {
     });
 }
 
-// --- NEW, SIMPLIFIED PAINTING LOGIC ---
-// This function now just changes the vertex colors of the tiles.
+// --- UPDATED: Painting logic now works on the high-resolution grid ---
 export function paintTextureOnTile(ci, cj, texture, radius, appState) {
     const { terrainMesh, config } = appState;
     if (!terrainMesh) return;
 
-    // For now, we only have a "leaves" brush.
-    // We set the RED channel to 1.0 for leaves.
     const paintValue = (texture === 'leaves') ? 1.0 : 0.0;
-
     const colorAttr = terrainMesh.geometry.attributes.color;
-    const vertsPerRow = config.TILES_X + 1;
+    
+    // Total number of vertices across the width of the entire terrain
+    const totalVertsX = config.TILES_X * SUBDIVISIONS + 1;
 
-    // Loop through a square of tiles around the center point (ci, cj)
     for (let j = cj - radius; j <= cj + radius; j++) {
         for (let i = ci - radius; i <= ci + radius; i++) {
-            // Check if the tile is within the terrain bounds
             if (i >= 0 && i < config.TILES_X && j >= 0 && j < config.TILES_Y) {
-                // Check if the tile is within the circular brush radius
                 const dist = Math.hypot(i - ci, j - cj);
                 if (dist <= radius) {
-                    // Get the 4 vertex indices for this tile
-                    const v1 = j * vertsPerRow + i;         // Top-left
-                    const v2 = j * vertsPerRow + (i + 1);     // Top-right
-                    const v3 = (j + 1) * vertsPerRow + i;     // Bottom-left
-                    const v4 = (j + 1) * vertsPerRow + (i + 1); // Bottom-right
-                    
-                    // Set the RED color component for each vertex
-                    colorAttr.setX(v1, paintValue);
-                    colorAttr.setX(v2, paintValue);
-                    colorAttr.setX(v3, paintValue);
-                    colorAttr.setX(v4, paintValue);
+                    // Now, loop through all the sub-vertices INSIDE this one tile
+                    for (let subJ = 0; subJ <= SUBDIVISIONS; subJ++) {
+                        for (let subI = 0; subI <= SUBDIVISIONS; subI++) {
+                            const vertX = i * SUBDIVISIONS + subI;
+                            const vertY = j * SUBDIVISIONS + subJ;
+                            const vertIndex = vertY * totalVertsX + vertX;
+                            
+                            colorAttr.setX(vertIndex, paintValue);
+                        }
+                    }
                 }
             }
         }
     }
-
-    // Tell Three.js the color attribute has been updated
     colorAttr.needsUpdate = true;
 }
 
-// The rest of the file is unchanged and correct.
 export function randomizeTerrain(appState) {
     if (!appState.terrainMesh) return;
     const arr = appState.terrainMesh.geometry.attributes.position.array;
@@ -206,18 +179,21 @@ export function randomizeTerrain(appState) {
     if (appState.ball) appState.ball.refresh();
 }
 
+// --- UPDATED: Heightmap logic now works on the high-resolution grid ---
 export function applyHeightmapTemplate(name, appState) {
     if (!appState.terrainMesh) return;
-    const { terrainMesh, ball, config } = appState;
-    const { TILES_X, TILES_Y } = config;
+    const { terrainMesh, ball } = appState;
+    
+    // Get the actual segment counts from the generated geometry
+    const { widthSegments, heightSegments } = terrainMesh.geometry.parameters;
 
     const pos = terrainMesh.geometry.attributes.position.array;
     const minH = -80, maxH = 120, range = maxH - minH;
     let idx = 1;
-    for (let jy = 0; jy <= TILES_Y; jy++) {
-        const v = jy / TILES_Y;
-        for (let ix = 0; ix <= TILES_X; ix++) {
-            const u = ix / TILES_X;
+    for (let jy = 0; jy <= heightSegments; jy++) {
+        const v = jy / heightSegments; // Use actual segments for correct UV mapping
+        for (let ix = 0; ix <= widthSegments; ix++) {
+            const u = ix / widthSegments; // Use actual segments for correct UV mapping
             let n = 0;
             switch (name) {
                 case 'Flat': n = -1; break;
@@ -240,6 +216,7 @@ export function applyHeightmapTemplate(name, appState) {
     if (ball) ball.refresh();
 }
 
+// Noise functions (unchanged)
 const _clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const _smooth = (t) => t * t * (3 - 2 * t);
 const _perm = new Uint8Array(512);
