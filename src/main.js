@@ -80,7 +80,11 @@ function showErrorOverlay(msg, err) {
       this.cam=cam; this.dom=dom; this.target=new THREE.Vector3(0,0,0);
       this.sph=new THREE.Spherical().setFromVector3(cam.position.clone().sub(this.target));
       this.dt=0; this.dp=0; this.dr=0; this.damp=.1; this.rot=.0025; this.zoom=.25; this.ptrs=new Map();
-      dom.addEventListener('pointerdown',e=>{ if(!this.enabled) return; dom.setPointerCapture(e.pointerId); this.ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});});
+      dom.addEventListener('pointerdown',e=>{
+        if(!this.enabled) return;
+        dom.setPointerCapture(e.pointerId);
+        this.ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+      });
       dom.addEventListener('pointermove',e=>{
         if(!this.enabled || !this.ptrs.has(e.pointerId)) return;
         const p=this.ptrs.get(e.pointerId),dx=e.clientX-p.x,dy=e.clientY-p.y;
@@ -88,16 +92,24 @@ function showErrorOverlay(msg, err) {
         if(this.ptrs.size===1){ this.dt-=dx*this.rot; this.dp-=dy*this.rot; }
       });
       addEventListener('pointerup',e=>this.ptrs.delete(e.pointerId));
-      dom.addEventListener('wheel',e=>{ if(!this.enabled) return; e.preventDefault(); this.dr+=e.deltaY*this.zoom;},{passive:false});
+      dom.addEventListener('wheel',e=>{
+        if(!this.enabled) return;
+        e.preventDefault();
+        this.dr+=e.deltaY*this.zoom;
+      },{passive:false});
     }
     update(){
       if(!this.enabled) return;
-      this.sph.theta+=this.dt*(1-this.damp); this.sph.phi+=this.dp*(1-this.damp); this.sph.radius+=this.dr*(1-this.damp);
+      this.sph.theta+=this.dt*(1-this.damp);
+      this.sph.phi+=this.dp*(1-this.damp);
+      this.sph.radius+=this.dr*(1-this.damp);
       this.dt*=this.damp; this.dp*=this.damp; this.dr*=this.damp;
-      const eps=1e-3; this.sph.phi=Math.max(eps,Math.min(Math.PI/2-0.05,this.sph.phi));
+      const eps=1e-3;
+      this.sph.phi=Math.max(eps,Math.min(Math.PI/2-0.05,this.sph.phi));
       this.sph.radius=Math.max(50,Math.min(5000,this.sph.radius));
       const pos=new THREE.Vector3().setFromSpherical(this.sph).add(this.target);
-      this.cam.position.copy(pos); this.cam.lookAt(this.target);
+      this.cam.position.copy(pos);
+      this.cam.lookAt(this.target);
     }
   }
   const controls = new MiniOrbit(camera, renderer.domElement);
@@ -186,9 +198,13 @@ function showErrorOverlay(msg, err) {
   const makeMaterial = () => new THREE.MeshStandardMaterial({ color:0x7c8a92, metalness:0.05, roughness:0.9 });
   const dispose = (obj)=>{
     if(!obj) return;
-    obj.traverse?.(o=>{
-      if(o.isMesh){ o.geometry?.dispose(); if(Array.isArray(o.material)) o.material.forEach(m=>m.dispose()); else o.material?.dispose(); }
-    });
+    obj.traverse?.(o)=>{
+      if(o.isMesh){
+        o.geometry?.dispose();
+        if(Array.isArray(o.material)) o.material.forEach(m=>m.dispose());
+        else o.material?.dispose();
+      }
+    };
     obj.parent?.remove(obj);
   };
 
@@ -312,8 +328,8 @@ function showErrorOverlay(msg, err) {
     return y0*(1-fy)+y1*fy;
   }
 
-  // Updated: trees sized 10–15ft equivalent (> character height)
-  function makeTree(/* scale unused now */){
+  // Trees sized 10–15ft equivalent (> character height), base flush to terrain
+  function makeTree(){
     const ratio = THREE.MathUtils.lerp(TREE_MIN_RATIO, TREE_MAX_RATIO, Math.random()); // ~1.67..2.5x character
     const totalH = CHAR_HEIGHT_UNITS * ratio;
     const trunkH = totalH * 0.42;
@@ -327,13 +343,17 @@ function showErrorOverlay(msg, err) {
       new THREE.CylinderGeometry(trunkRTop, trunkRBottom, trunkH, 10),
       new THREE.MeshStandardMaterial({color:0x735a3a, roughness:0.9})
     );
+    trunk.position.y = trunkH * 0.5; // base at y=0
+
     const crown = new THREE.Mesh(
       new THREE.ConeGeometry(crownR, crownH, 12),
       new THREE.MeshStandardMaterial({color:0x2f9448, roughness:0.9})
     );
-    crown.position.y = trunkH*0.5 + crownH*0.5;
+    crown.position.y = trunkH + crownH * 0.5;
+
     trunk.castShadow = crown.castShadow = true;
-    const g = new THREE.Group(); g.add(trunk, crown); return g;
+    const g = new THREE.Group(); g.add(trunk, crown);
+    return g;
   }
 
   function populateTrees(count){
@@ -350,9 +370,9 @@ function showErrorOverlay(msg, err) {
       if (used.has(key)) continue;
       used.add(key);
       const c = tileCenterLocal(i,j);
-      const y = sampleHeightLocal(c.x, c.z);
+      const y = sampleHeightLocal(c.x, c.z); // sample exact terrain height at the tile center
       const t = makeTree();
-      t.position.set(c.x, y, c.z);
+      t.position.set(c.x, y, c.z); // group base sits flush at sampled y
       treesGroup.add(t);
       placed++;
     }
@@ -501,7 +521,7 @@ function showErrorOverlay(msg, err) {
     }
   }
 
-  // --- NEW: Tap-to-move character when Sculpt is OFF ---
+  // --- Tap-to-move character when Sculpt is OFF ---
   renderer.domElement.addEventListener('pointerdown', (ev) => {
     if (sculptOn.checked) return;                // don't hijack sculpting gesture
     if (!terrainMesh || !ball) return;
