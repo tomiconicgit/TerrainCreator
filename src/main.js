@@ -1,5 +1,4 @@
-// file: src/main.js
-// Uses vendor/three.sky.js directly. No src/sky.js wrapper.
+// Sky is created directly from local vendor/three.sky.js (no src/sky.js wrapper)
 import BallMarker from './character.js';
 
 // -- Error overlay --
@@ -12,50 +11,48 @@ function showErrorOverlay(msg, err) {
   document.body.appendChild(el);
 }
 
-// -- Load THREE (local → CDN) --
+// Load THREE (local → CDN)
 async function loadThree() {
   try { return await import('../vendor/three.module.js'); }
-  catch (eLocal) {
-    try { return await import('https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js'); }
-    catch (eCdn) { showErrorOverlay('THREE not found. Add /vendor/three.module.js (r160).', eCdn); throw eCdn; }
+  catch {
+    return await import('https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js');
   }
 }
-
-// -- Load Sky class (local → CDN) --
+// Load Sky class (local → CDN)
 async function loadSkyClass() {
   try { return (await import('../vendor/three.sky.js')).Sky; }
-  catch (eLocal) {
-    try { return (await import('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/objects/Sky.js')).Sky; }
-    catch (eCdn) { return null; }
+  catch {
+    return (await import('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/objects/Sky.js')).Sky;
   }
 }
 
 (async () => {
   const THREE = await loadThree();
+  const Sky = await loadSkyClass();
 
-  // --------- Config / State ----------
+  // ---- Config ----
   let TILES_X = 30, TILES_Y = 30;
   const TILE_SIZE = 32;
   const MIN_H = -200, MAX_H = 300;
   const raycaster = new THREE.Raycaster();
 
-  // --------- Renderer / Scene / Camera ----------
+  // ---- Renderer / Scene / Camera ----
   const canvas = document.getElementById('c');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.1;
+  renderer.toneMappingExposure = 1.15;       // brighter by default
   renderer.shadowMap.enabled = true;
 
   const scene = new THREE.Scene();
-  scene.background = null; // let the sky render behind
+  scene.background = null;                    // let the sky render
 
   const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 20000);
   camera.position.set(600, 450, 600);
 
-  // Minimal orbit with .enabled toggling
+  // Minimal orbit controls with enable toggle
   class MiniOrbit {
     constructor(cam, dom){
       this.enabled = true;
@@ -66,7 +63,7 @@ async function loadSkyClass() {
       dom.addEventListener('pointermove',e=>{
         if(!this.enabled || !this.ptrs.has(e.pointerId)) return;
         const p=this.ptrs.get(e.pointerId),dx=e.clientX-p.x,dy=e.clientY-p.y;
-        this.ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+        this.ptrs.set(e.pointerId,{x:e.clientX,y=e.clientY});
         if(this.ptrs.size===1){ this.dt-=dx*this.rot; this.dp-=dy*this.rot; }
       });
       addEventListener('pointerup',e=>this.ptrs.delete(e.pointerId));
@@ -84,91 +81,80 @@ async function loadSkyClass() {
   }
   const controls = new MiniOrbit(camera, renderer.domElement);
 
-  // lights
-  const sun = new THREE.DirectionalLight(0xffffff, 2.0);
-  sun.castShadow = true;
-  scene.add(sun, new THREE.AmbientLight(0x445566, 0.6));
+  // ---- Lights ----
+  const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
+  dirLight.castShadow = true;
+  scene.add(dirLight, new THREE.AmbientLight(0x445566, 0.6));
+  const lightTarget = new THREE.Object3D(); scene.add(lightTarget); dirLight.target = lightTarget;
 
-  // --------- Sky (direct) ----------
-  const Sky = await loadSkyClass();
-  let skyMesh = null, skyUniforms = null;
-  const pmremGen = new THREE.PMREMGenerator(renderer);
-  pmremGen.compileEquirectangularShader();
-  let envRT = null;
+  // ---- Sky (direct from vendor/three.sky.js) ----
+  let sky = null, uniforms = null, envRT = null;
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  pmrem.compileEquirectangularShader();
 
-  // sky params
   const skyParams = {
     turbidity: 2.5,
     rayleigh: 2.0,
     mieCoefficient: 0.004,
     mieDirectionalG: 0.8,
-    elevation: 10,      // low sun so disk is visible
+    elevation: 12,     // low-ish sun so disk is obvious
     azimuth: 180,
-    exposure: 1.1
+    exposure: 1.15
   };
 
-  function ensureSky() {
-    if (skyMesh) return;
-    if (!Sky) return; // fallback handled by scene.background (already null/gradient of CSS)
-    skyMesh = new Sky();
-    skyMesh.name = 'Sky';
-    skyMesh.scale.setScalar(1000);
-    scene.add(skyMesh);
-    skyUniforms = skyMesh.material.uniforms;
+  function initSky() {
+    if (!Sky) return;
+    sky = new Sky();
+    sky.name = 'Sky';
+    sky.scale.setScalar(1000);
+    scene.add(sky);
+    uniforms = sky.material.uniforms;
   }
 
-  function setSunAndSky(worldSpanUnits = 100, focus = new THREE.Vector3()) {
-    if (!skyMesh) return;
+  function updateSky(worldSpanUnits = 3200, focus = new THREE.Vector3()) {
+    if (!sky) return;
+    // Set uniforms
+    uniforms.turbidity.value = skyParams.turbidity;
+    uniforms.rayleigh.value = skyParams.rayleigh;
+    uniforms.mieCoefficient.value = skyParams.mieCoefficient;
+    uniforms.mieDirectionalG.value = skyParams.mieDirectionalG;
 
     const phi = THREE.MathUtils.degToRad(90 - skyParams.elevation);
     const theta = THREE.MathUtils.degToRad(skyParams.azimuth);
     const sunDir = new THREE.Vector3().setFromSphericalCoords(1, phi, theta);
+    uniforms.sunPosition.value.copy(sunDir);
 
-    // uniforms
-    skyUniforms.turbidity.value = skyParams.turbidity;
-    skyUniforms.rayleigh.value = skyParams.rayleigh;
-    skyUniforms.mieCoefficient.value = skyParams.mieCoefficient;
-    skyUniforms.mieDirectionalG.value = skyParams.mieDirectionalG;
-    skyUniforms.sunPosition.value.copy(sunDir);
-
-    // size + exposure
-    const size = Math.max(100, worldSpanUnits);
-    skyMesh.scale.setScalar(size);
+    // Scale + exposure
+    sky.scale.setScalar(Math.max(100, worldSpanUnits));
     renderer.toneMappingExposure = skyParams.exposure;
 
-    // env map from CLONE (no reparenting)
-    if (envRT) { envRT.dispose(); envRT = null; }
+    // Env map via clone (no reparenting the real sky)
+    if (envRT) envRT.dispose();
     const tmp = new THREE.Scene();
-    const skyClone = skyMesh.clone();
-    skyClone.material = skyMesh.material.clone();
-    skyClone.scale.copy(skyMesh.scale);
-    tmp.add(skyClone);
-    envRT = pmremGen.fromScene(tmp);
+    const s2 = sky.clone();
+    s2.material = sky.material.clone();
+    s2.scale.copy(sky.scale);
+    tmp.add(s2);
+    envRT = pmrem.fromScene(tmp);
     scene.environment = envRT.texture;
-    skyClone.geometry.dispose();
-    skyClone.material.dispose();
+    s2.geometry.dispose(); s2.material.dispose();
 
-    // direct light matches sun
-    const lightDist = Math.max(150, size * 1.5);
-    sun.position.copy(sunDir).multiplyScalar(lightDist);
-    const target = scene.getObjectByName('SunTarget') || new THREE.Object3D();
-    target.name = 'SunTarget';
-    if (!target.parent) scene.add(target);
-    target.position.copy(focus);
-    sun.target = target;
+    // Match directional light
+    const dist = Math.max(150, sky.scale.x * 1.5);
+    dirLight.position.copy(sunDir).multiplyScalar(dist);
+    lightTarget.position.copy(focus);
 
-    // fit shadow cam if orthographic
-    const ortho = sun.shadow.camera;
+    const ortho = dirLight.shadow.camera;
     if (ortho && ortho.isOrthographicCamera) {
-      const half = Math.max(50, size * 0.75);
+      const half = Math.max(50, sky.scale.x * 0.75);
       ortho.left = -half; ortho.right = half; ortho.top = half; ortho.bottom = -half;
       ortho.updateProjectionMatrix();
     }
   }
 
-  ensureSky();
+  initSky();
 
-  // --------- Terrain / Trees / Ball ----------
+  // ---- Terrain / Trees / Ball ----
   let terrainGroup=null, terrainMesh=null, edgesHelper=null, treesGroup=null, ball=null;
 
   const makeMaterial = () => new THREE.MeshStandardMaterial({ color:0x7c8a92, metalness:0.05, roughness:0.9 });
@@ -183,11 +169,10 @@ async function loadSkyClass() {
   const planeWorldSize = () => ({ W: TILES_X * TILE_SIZE, H: TILES_Y * TILE_SIZE });
 
   function updateSkyBounds() {
-    if (!skyMesh) return;
-    const tilesSpan = Math.max(TILES_X, TILES_Y);
-    const tilesForSky = Math.max(100, tilesSpan);
-    const worldSpanUnits = tilesForSky * TILE_SIZE;
-    setSunAndSky(worldSpanUnits, new THREE.Vector3(0,0,0));
+    if (!sky) return;
+    const spanTiles = Math.max(TILES_X, TILES_Y);
+    const worldSpan = Math.max(100, spanTiles) * TILE_SIZE;
+    updateSky(worldSpan, new THREE.Vector3(0,0,0));
   }
 
   function buildTerrain(){
@@ -228,7 +213,7 @@ async function loadSkyClass() {
     terrainGroup.add(edgesHelper);
   }
 
-  // --------- Heightmap templates ----------
+  // ---- Heightmap templates (unchanged) ----
   const _clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
   const _smooth=t=>t*t*(3-2*t);
   const _perm=new Uint8Array(512); (function(){const p=new Uint8Array(256);for(let i=0;i<256;i++)p[i]=i;for(let i=255;i>0;i--){const j=(Math.random()*(i+1))|0;const t=p[i];p[i]=p[j];p[j]=t;}for(let i=0;i<512;i++)_perm[i]=p[i&255];})();
@@ -270,7 +255,7 @@ async function loadSkyClass() {
     ball?.refresh();
   }
 
-  // --------- Trees ----------
+  // ---- Trees (unchanged) ----
   function clearTrees(){ dispose(treesGroup); treesGroup=null; }
   function tileCenterLocal(i,j){
     const { W, H } = planeWorldSize();
@@ -329,7 +314,7 @@ async function loadSkyClass() {
     terrainGroup.add(treesGroup);
   }
 
-  // --------- Sculpt ----------
+  // ---- Sculpt (unchanged) ----
   function worldToTile(localX, localZ){
     const { W, H } = planeWorldSize();
     const u=(localX+W/2)/W, v=(localZ+H/2)/H;
@@ -368,7 +353,7 @@ async function loadSkyClass() {
     posAttr.needsUpdate=true; terrainMesh.geometry.computeVertexNormals(); rebuildEdges(); ball?.refresh();
   }
 
-  // --------- Tabs ----------
+  // ---- Tabs + UI wiring (unchanged) ----
   const tabButtons = Array.from(document.querySelectorAll('.tab'));
   const tabContents = {
     terrain: document.getElementById('tab-terrain'),
@@ -386,7 +371,6 @@ async function loadSkyClass() {
     });
   });
 
-  // --------- Wire UI (Terrain) ----------
   const tilesX = document.getElementById('tilesX');
   const tilesY = document.getElementById('tilesY');
   const genBtn = document.getElementById('genTerrain');
@@ -417,7 +401,6 @@ async function loadSkyClass() {
     populateTrees(n);
   });
 
-  // --------- Wire UI (Sculpt) ----------
   const sculptOn = document.getElementById('sculptOn');
   const stepInput = document.getElementById('stepInput');
   const stepDown = document.getElementById('stepDown');
@@ -473,9 +456,9 @@ async function loadSkyClass() {
     }
   }
 
-  // --------- Boot / Loop / SW ----------
-  buildTerrain();               // builds + updates sky bounds
-  setSunAndSky(100 * TILE_SIZE, new THREE.Vector3()); // ensure visible on first frame
+  // ---- Boot / Loop / SW ----
+  buildTerrain();                     // also triggers updateSkyBounds()
+  updateSky(100 * TILE_SIZE, new THREE.Vector3()); // visible from first frame
 
   addEventListener('resize', ()=>{
     renderer.setSize(innerWidth, innerHeight);
