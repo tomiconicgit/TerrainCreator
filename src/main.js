@@ -84,14 +84,6 @@ async function startApp() {
     });
 
     renderer.setAnimationLoop(() => {
-        if (appState.terrainMaterial) {
-            const uniforms = appState.terrainMaterial.uniforms;
-            uniforms.uSunDirection.value.copy(appState.dirLight.position).normalize();
-            uniforms.uDirLightColor.value.copy(appState.dirLight.color);
-            uniforms.uDirLightIntensity.value = appState.dirLight.intensity;
-            // REMOVED ambient light uniform update
-        }
-
         if (appState.camFollowEnabled && appState.ball?.mesh) {
             controls.lookAt(appState.ball.mesh.position);
         }
