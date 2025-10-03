@@ -35,20 +35,8 @@ html, body {
   z-index: 0;
 }
 
-/* ===== Top bar ===== */
-#topbar {
-  position: fixed;
-  top: calc(8px + var(--safe-top));
-  left: 8px; right: 8px;
-  display:flex; justify-content: space-between; align-items:center; gap:10px;
-  padding: 12px 14px;
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-radius: 14px;
-  z-index: 10;
-  box-shadow: var(--panel-shadow);
-}
-.brand { font-weight: 700; letter-spacing: 0.5px; }
+/* ===== Removed the topbar (if present, keep hidden) ===== */
+#topbar { display: none !important; }
 
 /* ===== Bottom panel with tabs on TOP ===== */
 #panel.card {
@@ -120,7 +108,7 @@ input[type="number"], input[type="text"], input[type="decimal"] {
   border: 1px solid var(--panel-border);
   background: #0f1621;
   color: var(--fg);
-  font-size: 16px;
+  font-size: 16px; /* prevent iOS zoom */
   -webkit-appearance: none;
   appearance: none;
 }
@@ -190,5 +178,5 @@ button.toggle.on { outline: 2px solid var(--accent); outline-offset: 0; }
   .row { gap:14px; }
 }
 
-/* Ensure panel/topbar capture taps */
-#panel, #topbar { touch-action: manipulation; pointer-events: auto; }
+/* Ensure panel capture taps */
+#panel { touch-action: manipulation; pointer-events: auto; }
