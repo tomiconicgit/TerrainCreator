@@ -5,6 +5,7 @@ import { initCamera, updateCameraBounds } from './camera.js';
 import { initLighting } from './lighting.js';
 import { initSky, updateSky } from './sky.js';
 import { createTerrain } from './terrain.js';
+import { Grass } from './grass.js'; // Import the new Grass class
 import { initSculpting, initTapToMove, initTapToPaint } from './sculpt.js';
 import { initUI, getUiState } from './ui.js';
 import initNavLock from './navlock.js';
@@ -12,7 +13,6 @@ import initNavLock from './navlock.js';
 async function startApp() {
     console.log('THREE revision:', THREE.REVISION);
 
-    // ---- Global App State ----
     const appState = {
         renderer: null,
         scene: null,
@@ -22,8 +22,10 @@ async function startApp() {
         lightTarget: null,
         terrainGroup: null,
         terrainMesh: null,
+        terrainMaterial: null,
         treesGroup: null,
         ball: null,
+        grass: null, // Add a property for our grass system
         camFollowEnabled: true,
         config: {
             TILES_X: 30, TILES_Y: 30, TILE_SIZE: 32,
@@ -34,7 +36,6 @@ async function startApp() {
         }
     };
 
-    // ---- Renderer / Scene ----
     const canvas = document.getElementById('c');
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -48,7 +49,6 @@ async function startApp() {
     scene.background = null;
     appState.scene = scene;
 
-    // ---- Initialization ----
     const { camera, controls } = initCamera(renderer);
     appState.camera = camera;
     appState.controls = controls;
@@ -59,17 +59,22 @@ async function startApp() {
 
     initSky(scene, renderer);
     createTerrain(appState);
+    
+    // ========= NEW: INITIALIZE GRASS =========
+    // We pass the newly created terrain mesh to the grass system
+    appState.grass = new Grass(scene, appState.terrainMesh);
+    appState.grass.regenerate(); // Initial generation
+    // =========================================
+    
     updateCameraBounds(appState);
     updateSky(appState, new THREE.Vector3());
 
-    // ---- UI and Controls ----
     let allowTapMove = true;
     initUI(appState);
     initSculpting(appState, getUiState);
     initTapToMove(appState, getUiState, () => allowTapMove);
     initTapToPaint(appState, getUiState);
 
-    // ---- NavLock ----
     try {
         initNavLock({ zIndex: 10000, offset: 10 });
         window.addEventListener('tc:navlock', (e) => {
@@ -77,7 +82,6 @@ async function startApp() {
         });
     } catch (_) {}
 
-    // ---- Resize ----
     window.addEventListener('resize', () => {
         renderer.setSize(window.innerWidth, window.innerHeight);
         camera.aspect = window.innerWidth / window.innerHeight;
@@ -86,8 +90,21 @@ async function startApp() {
         updateSky(appState);
     });
 
-    // ---- Animation Loop ----
+    const clock = new THREE.Clock();
     renderer.setAnimationLoop(() => {
+        const elapsedTime = clock.getElapsedTime();
+
+        if (appState.terrainMaterial) {
+            const sunDir = appState.terrainMaterial.uniforms.uSunDirection.value;
+            sunDir.copy(appState.dirLight.position).normalize();
+        }
+        
+        // ========= NEW: UPDATE GRASS ANIMATION =========
+        if (appState.grass) {
+            appState.grass.updateUniforms(elapsedTime);
+        }
+        // =============================================
+
         if (appState.camFollowEnabled && appState.ball?.mesh) {
             controls.lookAt(appState.ball.mesh.position);
         }
