@@ -1,12 +1,11 @@
 // file: src/sky.js
 // Sky dome that auto-fits your world and drives environment lighting.
-// Works with our no-bundler setup: tries local addon first, then CDN fallback.
-// If the addon can't be loaded, it falls back to a simple gradient dome.
+// Tries local addon first at src/vendor/three.sky.js, then other local fallbacks, then CDN.
 
 export class SkySystem {
   /**
    * @param {object} THREE - the Three namespace you already loaded
-   * @param {object|null} SkyClass - optional Sky class (from examples/jsm/objects/Sky.js)
+   * @param {object|null} SkyClass - optional Sky class
    * @param {THREE.Scene} scene
    * @param {THREE.WebGLRenderer} renderer
    * @param {THREE.DirectionalLight} dirLight
@@ -26,10 +25,9 @@ export class SkySystem {
     this.pmremGen.compileEquirectangularShader();
     this.envRT = null;
 
-    this.sky = null;        // will be set by load()
+    this.sky = null;        // set by load()
     this.uniforms = null;   // set if using the real Sky addon
 
-    // nice defaults
     this.params = {
       turbidity: 20,
       rayleigh: 0.508,
@@ -44,33 +42,35 @@ export class SkySystem {
     this._SkyClass = SkyClass || null;
   }
 
+  async _tryImport(paths) {
+    for (const p of paths) {
+      try { return (await import(p)).Sky; } catch {}
+    }
+    return null;
+  }
+
   async load() {
     const { THREE } = this;
     let SkyClass = this._SkyClass;
 
-    // Try to import the addon if not provided
     if (!SkyClass) {
-      try {
-        // Prefer local vendor copy if you add it later (tiny file)
-        // e.g. /vendor/examples/jsm/objects/Sky.js
-        SkyClass = (await import('../vendor/examples/jsm/objects/Sky.js')).Sky;
-      } catch {
-        // CDN fallback
-        try {
-          SkyClass = (await import('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/objects/Sky.js')).Sky;
-        } catch {
-          SkyClass = null;
-        }
-      }
+      // Priority: src/vendor/three.sky.js
+      SkyClass = await this._tryImport([
+        './vendor/three.sky.js',              // <repo>/src/vendor/three.sky.js   (preferred)
+        '../src/vendor/three.sky.js',         // fallback if structure differs
+        '../vendor/three.sky.js',             // <repo>/vendor/three.sky.js
+        '../vendor/examples/jsm/objects/Sky.js', // older path you might have
+        'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/objects/Sky.js' // CDN
+      ]);
     }
 
     if (SkyClass) {
       this.sky = new SkyClass();
       this.sky.name = 'Sky';
       this.scene.add(this.sky);
-      this.uniforms = this.sky.material.uniforms;
+      this.uniforms = this.sky.material?.uniforms || null;
     } else {
-      // Fallback: gradient dome so you still get a sky even if the addon fails
+      // Minimal gradient fallback
       const geo = new THREE.SphereGeometry(1, 32, 16);
       const mat = new THREE.ShaderMaterial({
         side: THREE.BackSide,
@@ -112,9 +112,6 @@ export class SkySystem {
 
   /**
    * Fits the sky dome to `worldSpanUnits` and positions light towards `focus`.
-   * Also updates env map and renderer exposure.
-   * @param {number} worldSpanUnits - world size (units) to cover (we pass tiles*tileSize with a 100-tile minimum)
-   * @param {THREE.Vector3} [focus]
    */
   update(worldSpanUnits = 100, focus) {
     if (!this._loaded) return;
@@ -122,37 +119,32 @@ export class SkySystem {
     const THREE = this.THREE;
     const p = this.params;
 
+    // uniforms (if real Sky)
+    const phi = THREE.MathUtils.degToRad(90 - p.elevation);
+    const theta = THREE.MathUtils.degToRad(p.azimuth);
+    this.sun.setFromSphericalCoords(1, phi, theta);
+
     if (this.uniforms) {
       const u = this.uniforms;
       u['turbidity'].value = p.turbidity;
       u['rayleigh'].value = p.rayleigh;
       u['mieCoefficient'].value = p.mieCoefficient;
       u['mieDirectionalG'].value = p.mieDirectionalG;
-
-      const phi = THREE.MathUtils.degToRad(90 - p.elevation);
-      const theta = THREE.MathUtils.degToRad(p.azimuth);
-      this.sun.setFromSphericalCoords(1, phi, theta);
       u['sunPosition'].value.copy(this.sun);
-    } else {
-      // fallback sky doesn't use the physical uniforms; still aim the sun
-      const phi = THREE.MathUtils.degToRad(90 - p.elevation);
-      const theta = THREE.MathUtils.degToRad(p.azimuth);
-      this.sun.setFromSphericalCoords(1, phi, theta);
     }
 
     const size = Math.max(100, worldSpanUnits);
     this.sky.scale.setScalar(size);
-
     this.renderer.toneMappingExposure = p.exposure;
 
-    // Refresh environment from sky (skip if fallback)
+    // Env from sky if available
     if (this.uniforms) {
       if (this.envRT) this.envRT.dispose();
       this.envRT = this.pmremGen.fromScene(this.sky);
       this.scene.environment = this.envRT.texture;
     }
 
-    // Light + shadow camera fit
+    // Sun light
     const lightDist = Math.max(150, size * 1.5);
     this.dirLight.position.copy(this.sun).multiplyScalar(lightDist);
     this.lightTarget.position.copy(focus || new THREE.Vector3());
