@@ -18,13 +18,13 @@ async function startApp() {
         camera: null,
         controls: null,
         dirLight: null,
+        ambientLight: null, // Add a reference for the ambient light
         lightTarget: null,
         terrainGroup: null,
         terrainMesh: null,
         terrainMaterial: null,
         treesGroup: null,
         ball: null,
-        // grass: null, // REMOVED
         camFollowEnabled: true,
         config: {
             TILES_X: 30, TILES_Y: 30, TILE_SIZE: 32,
@@ -52,14 +52,14 @@ async function startApp() {
     appState.camera = camera;
     appState.controls = controls;
 
-    const { dirLight, lightTarget } = initLighting(scene);
+    // We now need to get the ambient light from our lighting setup
+    const { dirLight, ambientLight, lightTarget } = initLighting(scene);
     appState.dirLight = dirLight;
+    appState.ambientLight = ambientLight;
     appState.lightTarget = lightTarget;
 
     initSky(scene, renderer);
     createTerrain(appState);
-    
-    // REMOVED GRASS INITIALIZATION
     
     updateCameraBounds(appState);
     updateSky(appState, new THREE.Vector3());
@@ -86,12 +86,16 @@ async function startApp() {
     });
 
     renderer.setAnimationLoop(() => {
+        // ========= NEW: PASS ALL LIGHT DATA TO SHADER =========
         if (appState.terrainMaterial) {
-            const sunDir = appState.terrainMaterial.uniforms.uSunDirection.value;
-            sunDir.copy(appState.dirLight.position).normalize();
+            const uniforms = appState.terrainMaterial.uniforms;
+            uniforms.uSunDirection.value.copy(appState.dirLight.position).normalize();
+            uniforms.uDirLightColor.value.copy(appState.dirLight.color);
+            uniforms.uDirLightIntensity.value = appState.dirLight.intensity;
+            // Combine ambient light color and intensity into one uniform
+            uniforms.uAmbientLightColor.value.copy(appState.ambientLight.color).multiplyScalar(appState.ambientLight.intensity);
         }
-        
-        // REMOVED GRASS ANIMATION UPDATE
+        // ======================================================
 
         if (appState.camFollowEnabled && appState.ball?.mesh) {
             controls.lookAt(appState.ball.mesh.position);
