@@ -17,7 +17,7 @@
   <link rel="stylesheet" href="./styles/app.css">
 
   <!-- Import map for the app (bootstrap doesn't use this).
-       Using CDN ensures 'three' always resolves on GitHub Pages. -->
+       Using CDN ensures 'three' resolves on GitHub Pages. -->
   <script type="importmap">
   {
     "imports": {
@@ -31,11 +31,7 @@
   <script type="module" src="./bootstrap.js"></script>
 </head>
 <body>
-  <!-- Top bar -->
-  <div id="topbar">
-    <div class="brand">MappedUp</div>
-    <button id="installBtn" class="pill">Install</button>
-  </div>
+  <!-- Removed the topbar -->
 
   <!-- Bottom control panel -->
   <div id="panel" class="card">
@@ -131,7 +127,14 @@
 
     <div class="tabcontent" id="tab-objects"><div class="section muted">Objects tab coming soon.</div></div>
     <div class="tabcontent" id="tab-extras"><div class="section muted">Extras tab coming soon.</div></div>
-    <div class="tabcontent" id="tab-settings"><div class="section muted">Settings tab coming soon.</div></div>
+
+    <!-- Settings (Install lives here now) -->
+    <div class="tabcontent" id="tab-settings">
+      <div class="section">
+        <button id="installBtn" class="primary">Install App</button>
+      </div>
+      <div class="section muted">Settings tab coming soon.</div>
+    </div>
   </div>
 
   <!-- WebGL canvas -->
