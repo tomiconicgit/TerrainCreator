@@ -166,7 +166,7 @@ export function createTerrain(appState) {
           uLeavesDiffuse: { value: leavesDiffuse },
           uLeavesNormal: { value: loadTexture('./assets/textures/leaves-normal.png') },
           uLeavesRoughness: { value: loadTexture('./assets/textures/leaves-roughness.jpg') },
-          uLeavesDisplacement: { value: loadTexture('./assets/textures/leaves-displacement.jpg') },
+          uLeavesDisplacement: { value: loadTexture('./assets/textures/displacement.png') }, // FILENAME CORRECTED
           uDisplacementScale: { value: 10.0 }, // How high the leaves "pop out". Adjust this value!
           // Lighting uniforms
           uSunDirection: { value: new THREE.Vector3(0.707, 0.707, 0) },
