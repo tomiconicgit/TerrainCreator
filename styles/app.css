@@ -184,7 +184,7 @@ button.toggle.on { outline: 2px solid var(--accent); outline-offset: 0; }
 /* Texture Palette */
 .texture-palette {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
   gap: 10px;
   margin: 12px 0;
 }
