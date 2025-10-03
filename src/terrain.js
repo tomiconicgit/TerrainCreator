@@ -34,7 +34,11 @@ const vertexShader = `
 `;
 
 const fragmentShader = `
+  // NEW UNIFORMS FOR REAL SCENE LIGHTING
   uniform vec3 uSunDirection;
+  uniform vec3 uDirLightColor;
+  uniform float uDirLightIntensity;
+  uniform vec3 uAmbientLightColor;
 
   varying vec3 vNormal;
   varying vec3 vColor;
@@ -57,45 +61,42 @@ const fragmentShader = `
   }
 
   void main() {
-    vec3 baseColor = vColor;
-    bool isGrass = baseColor.g > baseColor.r * 1.1 && baseColor.g > baseColor.b * 1.1;
+    // Convert incoming sRGB vertex color to linear space for correct lighting
+    vec3 linearBaseColor = pow(vColor, vec3(2.2));
+    
+    bool isGrass = linearBaseColor.g > linearBaseColor.r * 1.1 && linearBaseColor.g > linearBaseColor.b * 1.1;
 
     if (isGrass) {
-      // Mottling for realistic green variation
       float mottling = noise(vWorldPosition.xz * 0.03) * 0.5 + 0.5;
-      vec3 grassDark = baseColor * 0.75;
-      vec3 grassLight = baseColor * 1.25;
-      baseColor = mix(grassDark, grassLight, mottling);
-
-      // ========= MODIFICATION: DIRT PATCHES REMOVED =========
-      // The section that added brown dirt noise has been deleted.
-      // =======================================================
+      vec3 grassDark = linearBaseColor * 0.75;
+      vec3 grassLight = linearBaseColor * 1.25;
+      linearBaseColor = mix(grassDark, grassLight, mottling);
     }
     
-    // ========= MODIFICATION: ENHANCED LIGHTING MODEL =========
+    // ======== UPGRADED LIGHTING CALCULATION ========
     vec3 normal = normalize(vNormal);
     
-    // Lower ambient light to make shadows darker
-    float ambientStrength = 0.3;
-    vec3 ambient = ambientStrength * vec3(1.0);
+    // Ambient light from scene
+    vec3 ambient = uAmbientLightColor;
 
-    // Standard diffuse (sun) light
+    // Diffuse light from scene sun
     float diffuseStrength = max(0.0, dot(normal, uSunDirection));
-    vec3 diffuse = diffuseStrength * vec3(1.0);
+    vec3 diffuse = diffuseStrength * uDirLightColor * uDirLightIntensity;
 
-    // Specular (shiny reflection)
+    // Specular highlight
     vec3 halfwayDir = normalize(uSunDirection + vViewDirection);
     float spec = pow(max(dot(normal, halfwayDir), 0.0), 32.0);
-    
-    // Make non-grass surfaces shinier for more contrast
     float specularStrength = isGrass ? 0.2 : 0.5;
-    vec3 specular = specularStrength * spec * vec3(1.0);
+    vec3 specular = specularStrength * spec * uDirLightColor * uDirLightIntensity;
     
     // Combine lighting components
     vec3 lighting = ambient + diffuse + specular;
-    // ========================================================
 
-    gl_FragColor = vec4(baseColor * lighting, 1.0);
+    // Apply lighting to the linear base color
+    vec3 finalColor = linearBaseColor * lighting;
+
+    // The renderer will handle the final conversion from linear to sRGB screen space
+    gl_FragColor = vec4(finalColor, 1.0);
   }
 `;
 
@@ -138,6 +139,10 @@ export function createTerrain(appState) {
       terrainMaterial = new THREE.ShaderMaterial({
         uniforms: {
           uSunDirection: { value: new THREE.Vector3(0.707, 0.707, 0) },
+          // Add uniforms to receive light data from JS
+          uDirLightColor: { value: new THREE.Color() },
+          uDirLightIntensity: { value: 1.0 },
+          uAmbientLightColor: { value: new THREE.Color() }
         },
         vertexShader: vertexShader,
         fragmentShader: fragmentShader,
@@ -204,10 +209,26 @@ export function paintTextureOnTile(ci, cj, texture, radius, appState) {
                         existingColor.lerp(brushColor, blendStrength);
                         colorAttr.setXYZ(vi, existingColor.r, existingColor.g, existingColor.b);
 
-                        if (texture === 'grass') {
-                            const currentY = positionAttr.getY(vi);
-                            const displacement = (Math.random() * 0.5) * blendStrength;
-                            positionAttr.setY(vi, currentY + displacement);
+                        // --- NEW: PERLIN NOISE DISPLACEMENT FOR GRASS AND SAND ---
+                        if (texture === 'grass' || texture === 'sand') {
+                            const x = positionAttr.getX(vi);
+                            const z = positionAttr.getZ(vi);
+                            let frequency = 0.0;
+                            let amplitude = 0.0;
+
+                            if(texture === 'grass') {
+                                frequency = 0.8; // Higher frequency for bumpy grass
+                                amplitude = 0.3; 
+                            } else { // sand
+                                frequency = 0.1; // Lower frequency for gentle dunes
+                                amplitude = 0.2;
+                            }
+
+                            // _perlin2 returns a value between -1 and 1
+                            const noise = _perlin2(x * frequency, z * frequency);
+                            const displacement = noise * amplitude * blendStrength;
+                            
+                            positionAttr.setY(vi, positionAttr.getY(vi) + displacement);
                         }
                     });
                 }
