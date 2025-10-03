@@ -4,7 +4,6 @@ import { dispose } from './utils.js';
 import BallMarker from './character.js';
 
 let edgesHelper = null;
-let terrainMaterial = null;
 
 const TEXTURE_COLORS = {
     grass: new THREE.Color(0x559040),
@@ -13,89 +12,6 @@ const TEXTURE_COLORS = {
     stone: new THREE.Color(0x6b7280),
 };
 const DEFAULT_TEXTURE = 'grass';
-
-const vertexShader = `
-  varying vec3 vNormal;
-  varying vec3 vColor;
-  varying vec3 vViewDirection;
-  varying vec3 vWorldPosition;
-
-  void main() {
-    vColor = color;
-    vNormal = normalize(normalMatrix * normal);
-    
-    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-    vWorldPosition = worldPosition.xyz;
-    
-    vViewDirection = normalize(cameraPosition - worldPosition.xyz);
-
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
-
-const fragmentShader = `
-  uniform vec3 uSunDirection;
-  uniform vec3 uDirLightColor;
-  uniform float uDirLightIntensity;
-
-  varying vec3 vNormal;
-  varying vec3 vColor;
-  varying vec3 vViewDirection;
-  varying vec3 vWorldPosition;
-
-  float random(vec2 st) {
-    return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
-  }
-
-  float noise(vec2 st) {
-    vec2 i = floor(st);
-    vec2 f = fract(st);
-    vec2 u = f * f * (3.0 - 2.0 * f);
-    float a = random(i);
-    float b = random(i + vec2(1.0, 0.0));
-    float c = random(i + vec2(0.0, 1.0));
-    float d = random(i + vec2(1.0, 1.0));
-    return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.y * u.x;
-  }
-
-  void main() {
-    vec3 linearBaseColor = pow(vColor, vec3(2.2));
-    bool isGrass = linearBaseColor.g > linearBaseColor.r * 1.1 && linearBaseColor.g > linearBaseColor.b * 1.1;
-
-    if (isGrass) {
-      float mottling = noise(vWorldPosition.xz * 0.03) * 0.5 + 0.5;
-      vec3 grassDark = linearBaseColor * 0.75;
-      vec3 grassLight = linearBaseColor * 1.25;
-      linearBaseColor = mix(grassDark, grassLight, mottling);
-    }
-    
-    // ======== NEW UNIFIED SKY/SUN LIGHTING MODEL ========
-    vec3 normal = normalize(vNormal);
-    
-    // 1. Hemisphere (Sky) Light -> Serves as Ambient Light
-    // Models light from the sky dome (blueish) and bounced light from the ground (brownish)
-    float skyFactor = dot(normal, vec3(0.0, 1.0, 0.0)) * 0.5 + 0.5;
-    vec3 skyLightColor = vec3(0.3, 0.4, 0.6);
-    vec3 groundLightColor = vec3(0.5, 0.25, 0.1);
-    vec3 hemisphereLight = mix(groundLightColor, skyLightColor, skyFactor) * 0.4;
-
-    // 2. Direct Sun Light
-    float diffuseStrength = max(0.0, dot(normal, uSunDirection));
-    vec3 diffuse = diffuseStrength * uDirLightColor * uDirLightIntensity;
-
-    // 3. Specular Highlight
-    vec3 halfwayDir = normalize(uSunDirection + vViewDirection);
-    float spec = pow(max(dot(normal, halfwayDir), 0.0), 32.0);
-    float specularStrength = isGrass ? 0.2 : 0.5;
-    vec3 specular = specularStrength * spec * uDirLightColor * uDirLightIntensity;
-    
-    // Combine all light sources
-    vec3 lighting = hemisphereLight + diffuse + specular;
-
-    vec3 finalColor = linearBaseColor * lighting;
-    gl_FragColor = vec4(finalColor, 1.0);
-  }
-`;
 
 function rebuildEdges(terrainGroup, terrainMesh) {
   if (!terrainMesh) return;
@@ -132,19 +48,12 @@ export function createTerrain(appState) {
         colors.setXYZ(i, defaultColor.r, defaultColor.g, defaultColor.b);
     }
 
-    if (!terrainMaterial) {
-      terrainMaterial = new THREE.ShaderMaterial({
-        uniforms: {
-          uSunDirection: { value: new THREE.Vector3(0.707, 0.707, 0) },
-          uDirLightColor: { value: new THREE.Color(0xffffff) },
-          uDirLightIntensity: { value: 1.0 },
-        },
-        vertexShader: vertexShader,
-        fragmentShader: fragmentShader,
+    const terrainMaterial = new THREE.MeshStandardMaterial({
         vertexColors: true,
-      });
-      appState.terrainMaterial = terrainMaterial;
-    }
+        roughness: 0.9,
+        metalness: 0.1,
+    });
+    appState.terrainMaterial = terrainMaterial;
     
     const mesh = new THREE.Mesh(geom, terrainMaterial);
     mesh.receiveShadow = true; 
