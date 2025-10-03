@@ -17,9 +17,8 @@ import BallMarker from './character.js';
     document.body.appendChild(el);
   }
 
-  // use a promise chain instead of top-level async arrow
-  var THREE, Sky;
-  var navLockLoaded = false;
+  // ESM imports via promise chain (no top-level await)
+  var THREE, Sky, initNavLock = null, navLockLoaded = false;
 
   import('three').then(function (mod) {
     THREE = mod;
@@ -27,7 +26,9 @@ import BallMarker from './character.js';
   }).then(function (modSky) {
     Sky = modSky.Sky;
     // Try to load NavLock (non-fatal if missing)
-    return import('./navlock.js').then(function () { navLockLoaded = true; }).catch(function(){ navLockLoaded = false; });
+    return import('./navlock.js')
+      .then(function (m) { initNavLock = m.default || m.initNavLock || null; navLockLoaded = !!initNavLock; })
+      .catch(function(){ navLockLoaded = false; initNavLock = null; });
   }).then(function () {
     startApp();
   }).catch(function (e) {
@@ -50,7 +51,7 @@ import BallMarker from './character.js';
     var TREE_MAX_RATIO = 15 / 6;             // 2.5x
 
     // Tap-to-move allow flag (tied to NavLock)
-    var allowTapMove = true; // NavLock ON => set to false
+    var allowTapMove = true; // NavLock "paused" => false
 
     // ---- Renderer / Scene / Camera ----
     var canvas = document.getElementById('c');
@@ -80,10 +81,9 @@ import BallMarker from './character.js';
     camera.position.set(600, 450, 600);
 
     // ---- Follow camera limits (dynamic) ----
-    // We keep a dynamic min/max radius and re-evaluate when world size changes
     var camFollowEnabled = true;
-    var camMinRadius = 30;     // will be refined later
-    var camMaxRadius = 5000;   // will be refined later
+    var camMinRadius = 30;     // refined after terrain
+    var camMaxRadius = 5000;   // refined after terrain
 
     // Minimal orbit controls with enable toggle + dynamic bounds + follow target
     function MiniOrbit(cam, dom) {
@@ -126,10 +126,7 @@ import BallMarker from './character.js';
       this.dt *= this.damp; this.dp *= this.damp; this.dr *= this.damp;
       var eps = 1e-3;
       this.sph.phi = Math.max(eps, Math.min(Math.PI / 2 - 0.05, this.sph.phi));
-
-      // clamp radius using dynamic bounds
       this.sph.radius = Math.max(this.minRadius, Math.min(this.maxRadius, this.sph.radius));
-
       var pos = new THREE.Vector3().setFromSpherical(this.sph).add(this.target);
       this.cam.position.copy(pos); this.cam.lookAt(this.target);
     };
@@ -245,7 +242,7 @@ import BallMarker from './character.js';
       // min: get really close to character; max: see whole terrain comfortably
       var spanTiles = Math.max(TILES_X, TILES_Y);
       var worldSpan = Math.max(100, spanTiles) * TILE_SIZE;
-      camMinRadius = Math.max(CHAR_HEIGHT_UNITS * 0.6, TILE_SIZE * 0.8); // close to “person”
+      camMinRadius = Math.max(CHAR_HEIGHT_UNITS * 0.6, TILE_SIZE * 0.8);
       camMaxRadius = Math.max(worldSpan * 1.2, 1500);
       controls.setBounds(camMinRadius, camMaxRadius);
     }
@@ -434,7 +431,7 @@ import BallMarker from './character.js';
 
     // Trees sized 10–15ft equivalent (> character height), base flush to terrain
     function makeTree() {
-      var ratio = THREE.MathUtils.lerp(TREE_MIN_RATIO, TREE_MAX_RATIO, Math.random()); // 1.67..2.5× character
+      var ratio = THREE.MathUtils.lerp(TREE_MIN_RATIO, TREE_MAX_RATIO, Math.random());
       var totalH = CHAR_HEIGHT_UNITS * ratio;
       var trunkH = totalH * 0.42;
       var crownH = totalH - trunkH;
@@ -475,9 +472,9 @@ import BallMarker from './character.js';
         if (used.has(key)) continue;
         used.add(key);
         var c = tileCenterLocal(i, j);
-        var y = sampleHeightLocal(c.x, c.z); // exact terrain height at tile center
+        var y = sampleHeightLocal(c.x, c.z);
         var t = makeTree();
-        t.position.set(c.x, y, c.z); // group base sits flush
+        t.position.set(c.x, y, c.z);
         treesGroup.add(t);
         placed++;
       }
@@ -636,7 +633,7 @@ import BallMarker from './character.js';
 
     // --- Tap-to-move character when Sculpt is OFF (and NavLock allows) ---
     renderer.domElement.addEventListener('pointerdown', function (ev) {
-      if (sculptOn.checked) return;             // don't hijack sculpting gesture
+      if (sculptOn.checked) return;
       if (!allowTapMove) return;                // paused by NavLock
       if (!terrainMesh || !ball) return;
       var rect = renderer.domElement.getBoundingClientRect();
@@ -671,7 +668,6 @@ import BallMarker from './character.js';
     // ---- Frame loop: keep following the ball smoothly ----
     renderer.setAnimationLoop(function () {
       if (camFollowEnabled && ball && ball.mesh && ball.mesh.position) {
-        // Keep controls target on the character so zoom/orbit is centered there
         controls.lookAt(ball.mesh.position);
       }
       controls.update();
@@ -690,15 +686,16 @@ import BallMarker from './character.js';
       });
     }
 
-    // ---- NavLock integration (optional; non-fatal if file missing) ----
-    if (navLockLoaded) {
-      // Listen for toggle changes from src/navlock.js
-      window.addEventListener('navlock-change', function (e) {
+    // ---- NavLock integration ----
+    if (navLockLoaded && typeof initNavLock === 'function') {
+      // Create the floating toggle (z-index below bootstrap max, above panel)
+      try { initNavLock({ zIndex: 10000, offset: 10 }); } catch (_) {}
+
+      // Listen for nav lock state: navlock.js dispatches "tc:navlock"
+      window.addEventListener('tc:navlock', function (e) {
         var paused = !!(e && e.detail && e.detail.paused);
         allowTapMove = !paused;  // paused=true => disallow tap-to-move
       });
-      // If your navlock also dispatches an initial state event on load, we’ll catch it.
-      // Otherwise, default allowTapMove=true (as above).
     }
   }
 })();
