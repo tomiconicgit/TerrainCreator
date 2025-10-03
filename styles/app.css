@@ -4,8 +4,7 @@
   --muted: #93a0b5;
   --accent: #00adff;
 
-  /* OPAQUE panel colors */
-  --panel-bg: #121720;           /* solid, no transparency */
+  --panel-bg: #121720;   /* solid, no transparency */
   --panel-border: #1f2a3a;
   --panel-shadow: 0 8px 24px rgba(0,0,0,.35);
 
@@ -22,22 +21,28 @@ html, body {
   background: var(--bg);
   color: var(--fg);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-  overscroll-behavior: contain;                 /* reduce iOS bounce */
+  overscroll-behavior: contain;
   padding-left:  max(8px, var(--safe-left));
   padding-right: max(8px, var(--safe-right));
 }
 
-/* Canvas behind everything */
-#c { position: fixed; inset: 0; outline: none; touch-action: none; z-index: 0; }
+/* Canvas full screen behind everything */
+#c {
+  position: fixed;
+  inset: 0;
+  outline: none;
+  touch-action: none;
+  z-index: 0;
+}
 
-/* Top bar — OPAQUE */
+/* ===== Top bar ===== */
 #topbar {
   position: fixed;
   top: calc(8px + var(--safe-top));
   left: 8px; right: 8px;
   display:flex; justify-content: space-between; align-items:center; gap:10px;
   padding: 12px 14px;
-  background: var(--panel-bg);                  /* solid */
+  background: var(--panel-bg);
   border: 1px solid var(--panel-border);
   border-radius: 14px;
   z-index: 10;
@@ -45,59 +50,60 @@ html, body {
 }
 .brand { font-weight: 700; letter-spacing: 0.5px; }
 
-/* Buttons default to touch-friendly sizes */
-button, .pill {
-  min-height: 44px;                             /* iPhone target size */
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid var(--panel-border);
-  background: #18202d;
-  color: var(--fg);
-  font-weight: 600;
-  font-size: 16px;                              /* prevent iOS zoom-on-tap */
-  line-height: 1.1;
-}
-.pill { background: #18202d; }
-button:active, .pill:active { transform: translateY(1px); }
-
-/* Bottom control panel — OPAQUE */
+/* ===== Bottom panel with tabs on TOP ===== */
 #panel.card {
   position: fixed;
   left: 8px; right: 8px; bottom: calc(8px + var(--safe-bottom));
   z-index: 10;
   pointer-events: auto;
-  background: var(--panel-bg);                  /* solid */
+
+  background: var(--panel-bg);
   border: 1px solid var(--panel-border);
   border-radius: 16px;
+  box-shadow: var(--panel-shadow);
   padding: 0;
   overflow: hidden;
-  box-shadow: var(--panel-shadow);
+
+  --tabbar-h: 48px;
+  --panel-h: clamp(220px, 38vh, 360px);
+  height: var(--panel-h);
 }
 
-/* Tabs */
-.tabs {
-  display: grid; grid-template-columns: repeat(5, 1fr); gap: 0;
+/* Tab bar docked to TOP of panel */
+#panel .tabs {
+  height: var(--tabbar-h);
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
   border-bottom: 1px solid var(--panel-border);
+  background: #0f1621;
 }
-.tab {
-  padding: 12px 8px;
-  background: transparent; border: 0;
-  color: var(--muted); font-weight: 700; font-size: 15px;
-  min-height: 44px;
+#panel .tab {
+  min-height: var(--tabbar-h);
+  height: var(--tabbar-h);
+  padding: 0 8px;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 15px;
 }
-.tab.on { color: var(--fg); background: #0f1621; }   /* solid active state */
-.tab:active { transform: translateY(1px); }
+#panel .tab.on { color: var(--fg); background: #0b1220; }
+#panel .tab:active { transform: translateY(1px); }
 
-.tabcontent {
+/* Tab content area fills below the tab bar and is scrollable */
+#panel .tabcontent {
   display: none;
+  position: absolute;
+  left: 0; right: 0;
+  top: var(--tabbar-h);
+  bottom: 0;
   padding: 12px;
-  max-height: 45vh;                              /* a bit taller for phones */
   overflow: auto;
-  -webkit-overflow-scrolling: touch;             /* smooth iOS scroll */
+  -webkit-overflow-scrolling: touch;
 }
-.tabcontent.on { display: block; }
+#panel .tabcontent.on { display: block; }
 
-/* Sections / rows */
+/* ===== Form controls ===== */
 .section { margin-bottom: 12px; }
 .section.muted { color: var(--muted); }
 
@@ -105,7 +111,6 @@ button:active, .pill:active { transform: translateY(1px); }
 .row-split { justify-content: space-between; }
 label { color: var(--muted); font-size: 14px; }
 
-/* Inputs: touch size + iOS number zoom fixes */
 .input-pair { display:flex; align-items:center; gap:10px; }
 
 input[type="number"], input[type="text"], input[type="decimal"] {
@@ -115,18 +120,17 @@ input[type="number"], input[type="text"], input[type="decimal"] {
   border: 1px solid var(--panel-border);
   background: #0f1621;
   color: var(--fg);
-  font-size: 16px;                               /* prevent iOS zoom */
+  font-size: 16px;
   -webkit-appearance: none;
   appearance: none;
 }
 .times { color: var(--muted); }
 
-/* Remove spinner arrows on iOS/Chrome */
 input[type=number]::-webkit-outer-spin-button,
 input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 input[type=number] { -moz-appearance: textfield; }
 
-/* Spinner controls */
+/* Spinners */
 .spinner { display:flex; align-items:center; gap:10px; }
 .spinner input {
   width: 104px; padding: 10px 12px; border-radius:12px;
@@ -134,13 +138,25 @@ input[type=number] { -moz-appearance: textfield; }
   text-align:center; font-size:16px;
 }
 .spinner button {
-  width: 44px; height: 44px;                     /* touch target */
-  border-radius:12px; border:1px solid var(--panel-border);
+  width: 44px; height: 44px;
+  border-radius:12px;
+  border:1px solid var(--panel-border);
   background:#18202d; color:var(--fg); font-weight:800; font-size:18px;
 }
 
-/* Button grid */
-.grid { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+/* Buttons */
+button, .pill {
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  background: #18202d;
+  color: var(--fg);
+  font-weight: 600;
+  font-size: 16px;
+}
+button:active, .pill:active { transform: translateY(1px); }
+
 button.primary {
   background: linear-gradient(180deg, #00adff, #007ee0);
   border-color: #006cbf;
@@ -148,7 +164,10 @@ button.primary {
 }
 button.toggle.on { outline: 2px solid var(--accent); outline-offset: 0; }
 
-/* Switch for Sculpt enable */
+/* Grids */
+.grid { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+
+/* Sculpt switch */
 .switch { position: relative; display: inline-block; width: 56px; height: 32px; }
 .switch input { display:none; }
 .slider {
@@ -164,12 +183,12 @@ button.toggle.on { outline: 2px solid var(--accent); outline-offset: 0; }
 
 .hint { margin: 8px 4px 0; color: var(--muted); font-size: 12px; }
 
-/* iPhone-specific comfort tweaks */
+/* Touch tweaks */
 @media (hover: none) and (pointer: coarse) {
   .tab { font-size: 16px; }
   .grid { gap:12px; }
   .row { gap:14px; }
 }
 
-/* Ensure UI stays on top of canvas interactions on iOS */
+/* Ensure panel/topbar capture taps */
 #panel, #topbar { touch-action: manipulation; pointer-events: auto; }
