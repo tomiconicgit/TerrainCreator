@@ -84,14 +84,7 @@ async function startApp() {
     });
 
     renderer.setAnimationLoop(() => {
-        // --- THIS BLOCK IS REQUIRED FOR THE CUSTOM SHADER ---
-        if (appState.terrainMaterial && appState.terrainMaterial.isShaderMaterial) {
-            const uniforms = appState.terrainMaterial.uniforms;
-            uniforms.uSunDirection.value.copy(appState.dirLight.position).normalize();
-            uniforms.uDirLightColor.value.copy(appState.dirLight.color);
-            uniforms.uDirLightIntensity.value = appState.dirLight.intensity;
-        }
-        // --- END OF REQUIRED BLOCK ---
+        // The custom shader uniform update block has been removed.
 
         if (appState.camFollowEnabled && appState.ball?.mesh) {
             controls.lookAt(appState.ball.mesh.position);
