@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+  />
   <meta name="theme-color" content="#101318" />
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -11,9 +14,13 @@
   <title>MappedUp</title>
   <link rel="stylesheet" href="./styles/app.css">
 
-  <!-- Resolve "three" for vendor/three.sky.js -->
+  <!-- One and only THREE source -->
   <script type="importmap">
-  { "imports": { "three": "./vendor/three.module.js" } }
+  {
+    "imports": {
+      "three": "./vendor/three.module.js"
+    }
+  }
   </script>
 </head>
 <body>
@@ -38,7 +45,7 @@
           <label>Grid (tiles)</label>
           <div class="input-pair">
             <input id="tilesX" type="number" min="2" max="256" step="1" value="30" inputmode="numeric">
-            <span class="times">×</span>
+            <span class="times">x</span>
             <input id="tilesY" type="number" min="2" max="256" step="1" value="30" inputmode="numeric">
           </div>
         </div>
