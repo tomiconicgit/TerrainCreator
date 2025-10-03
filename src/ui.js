@@ -135,7 +135,8 @@ export function initUI(appState) {
         });
     }
 
-    if ('serviceWorker' in navigator) {
-        try { navigator.serviceWorker.register('./sw.js'); } catch (_) {}
-    }
+    // THIS BLOCK IS NOW REMOVED
+    // if ('serviceWorker' in navigator) {
+    //     try { navigator.serviceWorker.register('./sw.js'); } catch (_) {}
+    // }
 }
