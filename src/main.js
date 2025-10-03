@@ -11,24 +11,11 @@ function showErrorOverlay(msg, err) {
   document.body.appendChild(el);
 }
 
-// Load THREE (local → CDN)
-async function loadThree() {
-  try { return await import('../vendor/three.module.js'); }
-  catch {
-    return await import('https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js');
-  }
-}
-// Load Sky class (local → CDN)
-async function loadSkyClass() {
-  try { return (await import('../vendor/three.sky.js')).Sky; }
-  catch {
-    return (await import('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/objects/Sky.js')).Sky;
-  }
-}
-
 (async () => {
-  const THREE = await loadThree();
-  const Sky = await loadSkyClass();
+  // --- Single-source THREE via import map (no CDN fallbacks) ---
+  const THREE = await import('three');
+  const { Sky } = await import('../vendor/three.sky.js');
+  console.log('THREE revision:', THREE.REVISION);
 
   // ---- Config ----
   let TILES_X = 30, TILES_Y = 30;
@@ -45,6 +32,18 @@ async function loadSkyClass() {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.15;       // brighter by default
   renderer.shadowMap.enabled = true;
+  renderer.debug.checkShaderErrors = true;    // <-- surface shader issues
+
+  // Global traps so post-boot errors aren’t silent
+  window.addEventListener('error', (e) => {
+    const msg = e?.error?.message || e.message || String(e);
+    showErrorOverlay('Window error', e?.error || msg);
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    const reason = e?.reason || {};
+    const msg = reason?.message || String(reason);
+    showErrorOverlay('Unhandled promise rejection', reason);
+  });
 
   const scene = new THREE.Scene();
   scene.background = null;                    // let the sky render
@@ -63,7 +62,7 @@ async function loadSkyClass() {
       dom.addEventListener('pointermove',e=>{
         if(!this.enabled || !this.ptrs.has(e.pointerId)) return;
         const p=this.ptrs.get(e.pointerId),dx=e.clientX-p.x,dy=e.clientY-p.y;
-        this.ptrs.set(e.pointerId,{x:e.clientX,y=e.clientY});
+        this.ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
         if(this.ptrs.size===1){ this.dt-=dx*this.rot; this.dp-=dy*this.rot; }
       });
       addEventListener('pointerup',e=>this.ptrs.delete(e.pointerId));
@@ -128,16 +127,22 @@ async function loadSkyClass() {
     sky.scale.setScalar(Math.max(100, worldSpanUnits));
     renderer.toneMappingExposure = skyParams.exposure;
 
-    // Env map via clone (no reparenting the real sky)
-    if (envRT) envRT.dispose();
-    const tmp = new THREE.Scene();
-    const s2 = sky.clone();
-    s2.material = sky.material.clone();
-    s2.scale.copy(sky.scale);
-    tmp.add(s2);
-    envRT = pmrem.fromScene(tmp);
-    scene.environment = envRT.texture;
-    s2.geometry.dispose(); s2.material.dispose();
+    // Env map via clone (GUARDED so it can’t crash the frame)
+    try {
+      if (envRT) { envRT.dispose(); envRT = null; }
+      const tmp = new THREE.Scene();
+      const s2 = sky.clone();
+      s2.material = sky.material.clone();
+      s2.scale.copy(sky.scale);
+      tmp.add(s2);
+      envRT = pmrem.fromScene(tmp);
+      scene.environment = envRT.texture;
+      // tidy
+      s2.geometry.dispose(); s2.material.dispose();
+    } catch (err) {
+      console.warn('[Sky env] Failed to build PMREM:', err);
+      scene.environment = null; // keep rendering even if env fails
+    }
 
     // Match directional light
     const dist = Math.max(150, sky.scale.x * 1.5);
