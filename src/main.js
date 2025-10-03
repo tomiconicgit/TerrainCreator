@@ -115,6 +115,10 @@ function showErrorOverlay(msg, err) {
 
     var controls = new MiniOrbit(camera, renderer.domElement);
 
+    // --- NEW: camera follow settings ---
+    var followBall = true;
+    var _tmpVec3 = new THREE.Vector3();
+
     // ---- Lights ----
     var dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
     dirLight.castShadow = true;
@@ -257,6 +261,9 @@ function showErrorOverlay(msg, err) {
         radius: ballRadius,
         color: 0xff2b2b
       });
+
+      // --- NEW: snap orbit target to the character on (re)build ---
+      try { if (ball && ball.mesh) controls.target.copy(ball.mesh.position); } catch (_) {}
 
       updateSkyBounds();
     }
@@ -611,6 +618,11 @@ function showErrorOverlay(msg, err) {
       var local = terrainMesh.worldToLocal(hit.point.clone());
       var ij = worldToTile(local.x, local.z);
       ball.placeOnTile(ij.i, ij.j);
+
+      // --- NEW: nudge target toward the ball immediately on tap for snappier feel
+      if (followBall && ball && ball.mesh && typeof controls.target.lerp === 'function') {
+        controls.target.lerp(ball.mesh.position, 0.5);
+      }
     });
     // --- END tap-to-move ---
 
@@ -624,8 +636,15 @@ function showErrorOverlay(msg, err) {
       updateSkyBounds();
     });
 
-    // no arrow here either
-    renderer.setAnimationLoop(function () { controls.update(); renderer.render(scene, camera); });
+    // --- NEW: follow the ball each frame by lerping the orbit target ---
+    renderer.setAnimationLoop(function () {
+      if (followBall && ball && ball.mesh && typeof controls.target.lerp === 'function') {
+        _tmpVec3.copy(ball.mesh.position);
+        controls.target.lerp(_tmpVec3, 0.12); // 0..1 (higher = snappier follow)
+      }
+      controls.update();
+      renderer.render(scene, camera);
+    });
 
     if ('serviceWorker' in navigator) try { navigator.serviceWorker.register('./sw.js').catch(function () {}); } catch (_) {}
     var promptEvt = null;
