@@ -9,12 +9,14 @@
   <meta name="theme-color" content="#101318" />
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <title>TerrainCreator</title>
+
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./assets/icons/icon-512.png">
-  <title>MappedUp</title>
   <link rel="stylesheet" href="./styles/app.css">
 
-  <!-- One and only THREE source -->
+  <!-- Import map: single source of truth for THREE -->
   <script type="importmap">
   {
     "imports": {
@@ -22,13 +24,18 @@
     }
   }
   </script>
+
+  <!-- Bootstrap loader (handles preflight + errors + loads src/main.js) -->
+  <script src="./bootstrap.js" defer></script>
 </head>
 <body>
+  <!-- Top bar -->
   <div id="topbar">
     <div class="brand">MappedUp</div>
     <button id="installBtn" class="pill">Install</button>
   </div>
 
+  <!-- Bottom control panel -->
   <div id="panel" class="card">
     <div class="tabs">
       <button class="tab on" data-tab="terrain">Terrain</button>
@@ -125,7 +132,7 @@
     <div class="tabcontent" id="tab-settings"><div class="section muted">Settings tab coming soon.</div></div>
   </div>
 
+  <!-- WebGL canvas -->
   <canvas id="c"></canvas>
-  <script type="module" src="./src/main.js"></script>
 </body>
 </html>
