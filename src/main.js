@@ -91,7 +91,7 @@ import BallMarker from './character.js';
       this.cam = cam; this.dom = dom; this.target = new THREE.Vector3(0, 0, 0);
       this.sph = new THREE.Spherical().setFromVector3(cam.position.clone().sub(this.target));
       this.dt = 0; this.dp = 0; this.dr = 0; this.damp = .1; this.rot = .0025; this.zoom = .25; this.ptrs = new Map();
-      this.minRadius = 30; // updated later
+      this.minRadius = 5; // updated later
       this.maxRadius = 5000;
 
       var self = this;
