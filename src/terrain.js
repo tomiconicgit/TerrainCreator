@@ -5,40 +5,47 @@ import BallMarker from './character.js';
 
 let edgesHelper = null;
 
-// --- Canvas Painting Setup ---
-const CANVAS_SIZE = 2048; // The resolution of our paintable texture
-let paintCanvas, paintCtx, canvasTexture;
+// --- A NEW, SIMPLE SHADER FOR PER-TILE TEXTURING ---
+const vertexShader = `
+  varying vec2 vUv;
+  varying vec3 vColor;
 
-// Store loaded images for painting
-const textureImages = {}; 
-let baseTextureLoaded = false;
+  void main() {
+    // Pass the vertex color (our texture "switch") to the fragment shader
+    vColor = color;
 
-// Control the painted texture size. A higher number = smaller, more tiled texture.
-const texturePaintScale = 25.0;
+    // Pass the UV coordinates
+    vUv = uv;
 
-// Pre-load all images we need for painting
-function loadTextureImages(callback) {
-    const texturesToLoad = {
-        // Add other textures here for painting, e.g., 'sand': './src/assets/textures/sand.jpg'
-        leaves: './src/assets/textures/leaves-diffuse.jpg',
-    };
-    const textureKeys = Object.keys(texturesToLoad);
-    let loadedCount = 0;
+    // Standard position calculation
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
 
-    textureKeys.forEach(key => {
-        const img = new Image();
-        img.crossOrigin = "Anonymous";
-        img.src = texturesToLoad[key];
-        img.onload = () => {
-            textureImages[key] = img;
-            loadedCount++;
-            if (loadedCount === textureKeys.length) {
-                if (callback) callback();
-            }
-        };
-    });
-}
+const fragmentShader = `
+  uniform sampler2D uSandTexture;
+  uniform sampler2D uLeavesTexture;
 
+  varying vec2 vUv;
+  varying vec3 vColor;
+
+  void main() {
+    // fract() gets the fractional part of the UV coordinate.
+    // Since our UVs now go from 0 to 30, fract(vUv) will repeat from 0 to 1 for each tile.
+    vec2 tileUv = fract(vUv);
+
+    // Sample both the sand and leaves textures using these repeating tile UVs
+    vec3 sandColor = texture2D(uSandTexture, tileUv).rgb;
+    vec3 leavesColor = texture2D(uLeavesTexture, tileUv).rgb;
+
+    // The vColor.r is our "switch".
+    // If it's 0 (not painted), it will show sandColor.
+    // If it's 1 (painted with leaves), it will show leavesColor.
+    vec3 finalColor = mix(sandColor, leavesColor, vColor.r);
+
+    gl_FragColor = vec4(finalColor, 1.0);
+  }
+`;
 
 function rebuildEdges(terrainGroup, terrainMesh) {
   if (!terrainMesh) return;
@@ -66,45 +73,60 @@ export function createTerrain(appState) {
 
     const geom = new THREE.PlaneGeometry(W, H, TILES_X, TILES_Y);
     geom.rotateX(-Math.PI / 2);
-    geom.computeTangents();
 
-    // --- Setup the Canvas Texture for Painting ---
-    if (!paintCanvas) { // Initialize canvas only once
-        paintCanvas = document.createElement('canvas');
-        paintCanvas.width = CANVAS_SIZE;
-        paintCanvas.height = CANVAS_SIZE;
-        paintCtx = paintCanvas.getContext('2d');
-        canvasTexture = new THREE.CanvasTexture(paintCanvas);
-        canvasTexture.colorSpace = THREE.SRGBColorSpace;
+    // --- CRUCIAL UV MODIFICATION ---
+    // This loop remaps the UV coordinates so each tile gets its own 0-1 space.
+    const uvs = geom.attributes.uv.array;
+    for (let i = 0; i < uvs.length; i += 2) {
+        uvs[i] *= TILES_X;
+        uvs[i + 1] *= TILES_Y;
     }
 
-    // Fill canvas with a base green color every time terrain is generated
-    paintCtx.fillStyle = '#559040';
-    paintCtx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    canvasTexture.needsUpdate = true;
-
+    // --- Texture Loading ---
     const textureLoader = new THREE.TextureLoader();
+    const loadTexture = (path) => {
+        const texture = textureLoader.load(path);
+        // We use the shader for repeating, not the texture properties
+        texture.wrapS = THREE.ClampToEdgeWrapping;
+        texture.wrapT = THREE.ClampToEdgeWrapping;
+        texture.colorSpace = THREE.SRGBColorSpace;
+        return texture;
+    };
     
-    // --- Create the MeshStandardMaterial ---
-    const terrainMaterial = new THREE.MeshStandardMaterial({
-        // The .map is now our dynamic, paintable canvas
-        map: canvasTexture,
-        // We can still apply roughness/normal maps for overall surface detail
-        roughnessMap: textureLoader.load('./src/assets/textures/leaves-roughness.jpg'),
-        normalMap: textureLoader.load('./src/assets/textures/leaves-normal.png'),
-        normalScale: new THREE.Vector2(0.5, 0.5), 
+    // NOTE: You'll need to provide a sand texture.
+    // For now, a placeholder color is created. Replace the path if you have an image.
+    const createPlaceholderTexture = (color) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1; canvas.height = 1;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = color;
+        ctx.fillRect(0, 0, 1, 1);
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        return texture;
+    };
+
+    const terrainMaterial = new THREE.ShaderMaterial({
+        uniforms: {
+            uSandTexture: { value: createPlaceholderTexture('#d2b48c') }, // Tan color for sand
+            // You can replace the placeholder above with:
+            // uSandTexture: { value: loadTexture('./src/assets/textures/sand.jpg') },
+            uLeavesTexture: { value: loadTexture('./src/assets/textures/leaves-diffuse.jpg') },
+        },
+        vertexShader: vertexShader,
+        fragmentShader: fragmentShader,
+        vertexColors: true,
     });
     appState.terrainMaterial = terrainMaterial;
     
-    // Load images for the paint brushes
-    if (!baseTextureLoaded) {
-        loadTextureImages(() => {
-            baseTextureLoaded = true;
-        });
-    }
+    // Initialize vertex colors. All set to 0, so the 'sand' texture will show by default.
+    const vertexCount = (TILES_X + 1) * (TILES_Y + 1);
+    geom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(vertexCount * 3), 3));
     
     const mesh = new THREE.Mesh(geom, terrainMaterial);
-    mesh.receiveShadow = true; 
+    // This shader isn't lit, so receiveShadow doesn't apply.
+    // We can add lighting back in a later step if needed.
+    mesh.receiveShadow = false;
 
     const terrainGroup = new THREE.Group();
     terrainGroup.name = 'TileTerrain';
@@ -130,39 +152,48 @@ export function createTerrain(appState) {
     });
 }
 
-// --- RE-ENABLING Canvas Painting Logic ---
+// --- NEW, SIMPLIFIED PAINTING LOGIC ---
+// This function now just changes the vertex colors of the tiles.
 export function paintTextureOnTile(ci, cj, texture, radius, appState) {
-    // Exit if the canvas or the selected brush image isn't ready
-    if (!paintCtx || !textureImages[texture]) return;
+    const { terrainMesh, config } = appState;
+    if (!terrainMesh) return;
 
-    const { config } = appState;
+    // For now, we only have a "leaves" brush.
+    // We set the RED channel to 1.0 for leaves.
+    const paintValue = (texture === 'leaves') ? 1.0 : 0.0;
 
-    // Convert tile coordinates to canvas pixel coordinates
-    const canvasX = ((ci + 0.5) / config.TILES_X) * CANVAS_SIZE;
-    const canvasY = ((cj + 0.5) / config.TILES_Y) * CANVAS_SIZE;
-    
-    // Convert paint radius from tiles to pixels
-    const pixelRadius = (radius / Math.max(config.TILES_X, config.TILES_Y)) * CANVAS_SIZE;
+    const colorAttr = terrainMesh.geometry.attributes.color;
+    const vertsPerRow = config.TILES_X + 1;
 
-    // Create a repeating pattern from the brush image
-    const pattern = paintCtx.createPattern(textureImages[texture], 'repeat');
+    // Loop through a square of tiles around the center point (ci, cj)
+    for (let j = cj - radius; j <= cj + radius; j++) {
+        for (let i = ci - radius; i <= ci + radius; i++) {
+            // Check if the tile is within the terrain bounds
+            if (i >= 0 && i < config.TILES_X && j >= 0 && j < config.TILES_Y) {
+                // Check if the tile is within the circular brush radius
+                const dist = Math.hypot(i - ci, j - cj);
+                if (dist <= radius) {
+                    // Get the 4 vertex indices for this tile
+                    const v1 = j * vertsPerRow + i;         // Top-left
+                    const v2 = j * vertsPerRow + (i + 1);     // Top-right
+                    const v3 = (j + 1) * vertsPerRow + i;     // Bottom-left
+                    const v4 = (j + 1) * vertsPerRow + (i + 1); // Bottom-right
+                    
+                    // Set the RED color component for each vertex
+                    colorAttr.setX(v1, paintValue);
+                    colorAttr.setX(v2, paintValue);
+                    colorAttr.setX(v3, paintValue);
+                    colorAttr.setX(v4, paintValue);
+                }
+            }
+        }
+    }
 
-    // Create a transformation matrix to scale the pattern
-    const matrix = new DOMMatrix().scale(texturePaintScale, texturePaintScale);
-    pattern.setTransform(matrix);
-    
-    // Set the fill style to our new scaled pattern
-    paintCtx.fillStyle = pattern;
-
-    // Draw a circle at the brush location and fill it with the pattern
-    paintCtx.beginPath();
-    paintCtx.arc(canvasX, canvasY, pixelRadius, 0, Math.PI * 2);
-    paintCtx.fill();
-
-    // Tell Three.js to upload the updated canvas to the GPU
-    canvasTexture.needsUpdate = true;
+    // Tell Three.js the color attribute has been updated
+    colorAttr.needsUpdate = true;
 }
 
+// The rest of the file is unchanged and correct.
 export function randomizeTerrain(appState) {
     if (!appState.terrainMesh) return;
     const arr = appState.terrainMesh.geometry.attributes.position.array;
@@ -177,8 +208,9 @@ export function randomizeTerrain(appState) {
 
 export function applyHeightmapTemplate(name, appState) {
     if (!appState.terrainMesh) return;
-    const { terrainMesh, ball } = appState;
-    const { TILES_X, TILES_Y } = appState.config;
+    const { terrainMesh, ball, config } = appState;
+    const { TILES_X, TILES_Y } = config;
+
     const pos = terrainMesh.geometry.attributes.position.array;
     const minH = -80, maxH = 120, range = maxH - minH;
     let idx = 1;
@@ -208,7 +240,6 @@ export function applyHeightmapTemplate(name, appState) {
     if (ball) ball.refresh();
 }
 
-// Noise functions remain the same
 const _clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const _smooth = (t) => t * t * (3 - 2 * t);
 const _perm = new Uint8Array(512);
