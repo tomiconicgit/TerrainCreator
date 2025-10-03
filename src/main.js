@@ -1,3 +1,4 @@
+// file: src/main.js
 // Sky is created directly from local vendor/three.sky.js (no src/sky.js wrapper)
 import BallMarker from './character.js';
 
@@ -17,8 +18,7 @@ function showErrorOverlay(msg, err) {
 }
 
 (async () => {
-  // --- Single-source THREE via import map (no CDN fallbacks here;
-  //     the import map in index.html points to CDN to avoid GH Pages MIME issues).
+  // THREE via import map in index.html (points to CDN for GitHub Pages reliability)
   let THREE, Sky;
   try {
     THREE = await import('three');
@@ -49,21 +49,20 @@ function showErrorOverlay(msg, err) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.15;       // brighter by default
   renderer.shadowMap.enabled = true;
-  renderer.debug.checkShaderErrors = true;    // surface shader issues
+  renderer.debug.checkShaderErrors = true;
 
-  // Global traps so post-boot errors aren’t silent
+  // Capture post-boot errors too
   window.addEventListener('error', (e) => {
     const msg = e?.error?.message || e.message || String(e);
     showErrorOverlay('Window error', e?.error || msg);
   });
   window.addEventListener('unhandledrejection', (e) => {
-    const reason = e?.reason || {};
-    const msg = reason?.message || String(reason);
-    showErrorOverlay('Unhandled promise rejection', reason);
+    const r = e?.reason;
+    showErrorOverlay('Unhandled promise rejection', r || {});
   });
 
   const scene = new THREE.Scene();
-  scene.background = null;                    // let the sky render
+  scene.background = null; // let the sky render
 
   const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 20000);
   camera.position.set(600, 450, 600);
@@ -103,7 +102,7 @@ function showErrorOverlay(msg, err) {
   scene.add(dirLight, new THREE.AmbientLight(0x445566, 0.6));
   const lightTarget = new THREE.Object3D(); scene.add(lightTarget); dirLight.target = lightTarget;
 
-  // ---- Sky (direct from vendor/three.sky.js) ----
+  // ---- Sky (vendor/three.sky.js) ----
   let sky = null, uniforms = null, envRT = null;
   const pmrem = new THREE.PMREMGenerator(renderer);
   pmrem.compileEquirectangularShader();
@@ -136,7 +135,7 @@ function showErrorOverlay(msg, err) {
     uniforms.mieDirectionalG.value = skyParams.mieDirectionalG;
 
     const phi = THREE.MathUtils.degToRad(90 - skyParams.elevation);
-    thet a = THREE.MathUtils.degToRad(skyParams.azimuth);
+    const theta = THREE.MathUtils.degToRad(skyParams.azimuth);
     const sunDir = new THREE.Vector3().setFromSphericalCoords(1, phi, theta);
     uniforms.sunPosition.value.copy(sunDir);
 
@@ -144,7 +143,7 @@ function showErrorOverlay(msg, err) {
     sky.scale.setScalar(Math.max(100, worldSpanUnits));
     renderer.toneMappingExposure = skyParams.exposure;
 
-    // Env map via clone (GUARDED so it can’t crash the frame)
+    // Env map via clone (guarded)
     try {
       if (envRT) { envRT.dispose(); envRT = null; }
       const tmp = new THREE.Scene();
@@ -154,11 +153,10 @@ function showErrorOverlay(msg, err) {
       tmp.add(s2);
       envRT = pmrem.fromScene(tmp);
       scene.environment = envRT.texture;
-      // tidy
       s2.geometry.dispose(); s2.material.dispose();
     } catch (err) {
       console.warn('[Sky env] Failed to build PMREM:', err);
-      scene.environment = null; // keep rendering even if env fails
+      scene.environment = null;
     }
 
     // Match directional light
@@ -479,7 +477,7 @@ function showErrorOverlay(msg, err) {
   }
 
   // ---- Boot / Loop / SW ----
-  buildTerrain();                     // also triggers updateSkyBounds()
+  buildTerrain();                                  // also triggers updateSkyBounds()
   updateSky(100 * TILE_SIZE, new THREE.Vector3()); // visible from first frame
 
   addEventListener('resize', ()=>{
