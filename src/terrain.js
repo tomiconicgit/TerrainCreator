@@ -14,12 +14,12 @@ const TEXTURE_COLORS = {
 };
 const DEFAULT_TEXTURE = 'grass';
 
-// ========= NEW UPGRADED SHADER CODE =========
+// ========= SIMPLIFIED TERRAIN SHADER =========
 const vertexShader = `
-  varying vec3 vWorldPosition;
   varying vec3 vNormal;
   varying vec3 vColor;
   varying vec3 vViewDirection;
+  varying vec3 vWorldPosition;
 
   void main() {
     vColor = color;
@@ -28,111 +28,34 @@ const vertexShader = `
     vec4 worldPosition = modelMatrix * vec4(position, 1.0);
     vWorldPosition = worldPosition.xyz;
     
-    vec4 viewPosition = viewMatrix * worldPosition;
     vViewDirection = normalize(cameraPosition - worldPosition.xyz);
 
-    gl_Position = projectionMatrix * viewPosition;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
 
 const fragmentShader = `
-  uniform float uTime;
   uniform vec3 uSunDirection;
 
-  varying vec3 vWorldPosition;
   varying vec3 vNormal;
   varying vec3 vColor;
   varying vec3 vViewDirection;
 
-  // --- UTILITY FUNCTIONS ---
-  // Simple pseudo-random hash function
-  vec2 hash(vec2 p) {
-    p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
-    return fract(sin(p) * 43758.5453);
-  }
-
-  // --- PROCEDURAL GRASS FUNCTIONS (Inspired by the article) ---
-  // Function to create the shape of a single grass blade
-  float bladeShape(vec2 uv) {
-    float width = 0.015; // Blade width
-    float blade = smoothstep(width, 0.0, abs(uv.x)); // Create vertical line
-    blade *= smoothstep(0.0, 0.5, uv.y); // Fade in at the bottom
-    blade *= 1.0 - uv.y; // Taper to a point at the top
-    return blade;
-  }
-
-  // Function to draw one layer of grass blades in a tile
-  vec4 drawGrassLayer(vec2 uv, float time, vec3 baseColor) {
-    vec2 cell = floor(uv);
-    vec2 frac = fract(uv);
-    
-    vec2 h = hash(cell);
-    float height = h.x * 0.6 + 0.4; // Random height (0.4 to 1.0)
-    float lean = (h.y - 0.5) * 0.4; // Random lean (-0.2 to 0.2)
-    
-    // Animate the lean with wind
-    lean += sin(uv.x * 5.0 + time * 2.0) * 0.05;
-
-    // Center the UV for the blade shape
-    vec2 bladeUV = vec2(frac.x - 0.5, frac.y / height);
-    bladeUV.x += lean * frac.y; // Apply lean
-
-    float blade = bladeShape(bladeUV);
-    blade *= step(frac.y, height); // Cut off blade at its random height
-
-    // Color and shade the blade
-    vec3 bladeColor = baseColor * mix(0.7, 1.3, h.y); // Vary color per blade
-    bladeColor = mix(bladeColor * 0.6, bladeColor, smoothstep(0.0, 0.3, frac.y)); // Darker at the bottom
-    
-    return vec4(bladeColor, blade);
-  }
-
   void main() {
     vec3 baseColor = vColor;
-    bool isGrass = baseColor.g > baseColor.r * 1.1 && baseColor.g > baseColor.b * 1.1;
-
-    if (isGrass) {
-      // --- BASE GROUND LAYER ---
-      // Low-frequency noise for subtle dirt/color patches on the ground
-      vec2 noiseUV = vWorldPosition.xz * 0.1;
-      vec2 i = floor(noiseUV);
-      vec2 f = fract(noiseUV);
-      vec2 u = f * f * (3.0 - 2.0 * f);
-      float n = mix(mix(hash(i).x, hash(i + vec2(1,0)).x, u.x),
-                    mix(hash(i + vec2(0,1)).x, hash(i + vec2(1,1)).x, u.x), u.y);
-      
-      vec3 groundColor = mix(baseColor * 0.7, baseColor * 0.9, smoothstep(0.4, 0.6, n));
-
-      // --- GRASS BLADE LAYERS ---
-      // We tile the world space and draw multiple layers of grass blades for density
-      vec2 grassUV = vWorldPosition.xz * 150.0; // Scale of the grass blades
-
-      // Layer 1 (Back)
-      vec4 grassLayer1 = drawGrassLayer(grassUV + hash(vec2(1.0)).yx * 0.5, uTime, baseColor);
-      // Layer 2 (Front)
-      vec4 grassLayer2 = drawGrassLayer(grassUV, uTime, baseColor);
-      
-      // Blend the layers: Start with the ground, then draw layer 1, then layer 2 on top.
-      baseColor = mix(groundColor, grassLayer1.rgb, grassLayer1.a);
-      baseColor = mix(baseColor, grassLayer2.rgb, grassLayer2.a);
-
-    }
     
-    // --- IMPROVED LIGHTING MODEL ---
+    // Standard Blinn-Phong Lighting Model
     vec3 normal = normalize(vNormal);
     
-    // 1. Ambient Light
     float ambientStrength = 0.4;
     vec3 ambient = ambientStrength * vec3(1.0);
 
-    // 2. Diffuse Light
     float diffuseStrength = max(0.0, dot(normal, uSunDirection));
     vec3 diffuse = diffuseStrength * vec3(1.0);
 
-    // 3. Specular Light (Blinn-Phong)
     vec3 halfwayDir = normalize(uSunDirection + vViewDirection);
     float spec = pow(max(dot(normal, halfwayDir), 0.0), 32.0);
-    float specularStrength = isGrass ? 0.2 : 0.4; // Grass is less shiny
+    float specularStrength = 0.3;
     vec3 specular = specularStrength * spec * vec3(1.0);
 
     vec3 lighting = ambient + diffuse + specular;
@@ -140,7 +63,7 @@ const fragmentShader = `
     gl_FragColor = vec4(baseColor * lighting, 1.0);
   }
 `;
-// ==========================================
+// ===========================================
 
 function rebuildEdges(terrainGroup, terrainMesh) {
   if (!terrainMesh) return;
@@ -180,7 +103,6 @@ export function createTerrain(appState) {
     if (!terrainMaterial) {
       terrainMaterial = new THREE.ShaderMaterial({
         uniforms: {
-          uTime: { value: 0 },
           uSunDirection: { value: new THREE.Vector3(0.707, 0.707, 0) },
         },
         vertexShader: vertexShader,
@@ -191,7 +113,6 @@ export function createTerrain(appState) {
     }
     
     const mesh = new THREE.Mesh(geom, terrainMaterial);
-    // While the shader does its own lighting, receiving shadows from other objects still works.
     mesh.receiveShadow = true; 
 
     const terrainGroup = new THREE.Group();
