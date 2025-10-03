@@ -4,7 +4,7 @@ import { dispose } from './utils.js';
 import BallMarker from './character.js';
 
 let edgesHelper = null;
-let terrainMaterial = null; // We'll need to update this from main.js
+let terrainMaterial = null;
 
 const TEXTURE_COLORS = {
     grass: new THREE.Color(0x559040),
@@ -14,18 +14,24 @@ const TEXTURE_COLORS = {
 };
 const DEFAULT_TEXTURE = 'grass';
 
-// ========= NEW: SHADER CODE =========
+// ========= NEW UPGRADED SHADER CODE =========
 const vertexShader = `
   varying vec3 vWorldPosition;
   varying vec3 vNormal;
   varying vec3 vColor;
+  varying vec3 vViewDirection;
 
   void main() {
     vColor = color;
     vNormal = normalize(normalMatrix * normal);
+    
     vec4 worldPosition = modelMatrix * vec4(position, 1.0);
     vWorldPosition = worldPosition.xyz;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    
+    vec4 viewPosition = viewMatrix * worldPosition;
+    vViewDirection = normalize(cameraPosition - worldPosition.xyz);
+
+    gl_Position = projectionMatrix * viewPosition;
   }
 `;
 
@@ -36,59 +42,107 @@ const fragmentShader = `
   varying vec3 vWorldPosition;
   varying vec3 vNormal;
   varying vec3 vColor;
+  varying vec3 vViewDirection;
 
-  // Simple pseudo-random noise function
-  float random(vec2 st) {
-    return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
+  // --- UTILITY FUNCTIONS ---
+  // Simple pseudo-random hash function
+  vec2 hash(vec2 p) {
+    p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+    return fract(sin(p) * 43758.5453);
   }
 
-  // 2D Noise function based on the random function
-  float noise(vec2 st) {
-    vec2 i = floor(st);
-    vec2 f = fract(st);
+  // --- PROCEDURAL GRASS FUNCTIONS (Inspired by the article) ---
+  // Function to create the shape of a single grass blade
+  float bladeShape(vec2 uv) {
+    float width = 0.015; // Blade width
+    float blade = smoothstep(width, 0.0, abs(uv.x)); // Create vertical line
+    blade *= smoothstep(0.0, 0.5, uv.y); // Fade in at the bottom
+    blade *= 1.0 - uv.y; // Taper to a point at the top
+    return blade;
+  }
 
-    float a = random(i);
-    float b = random(i + vec2(1.0, 0.0));
-    float c = random(i + vec2(0.0, 1.0));
-    float d = random(i + vec2(1.0, 1.0));
+  // Function to draw one layer of grass blades in a tile
+  vec4 drawGrassLayer(vec2 uv, float time, vec3 baseColor) {
+    vec2 cell = floor(uv);
+    vec2 frac = fract(uv);
+    
+    vec2 h = hash(cell);
+    float height = h.x * 0.6 + 0.4; // Random height (0.4 to 1.0)
+    float lean = (h.y - 0.5) * 0.4; // Random lean (-0.2 to 0.2)
+    
+    // Animate the lean with wind
+    lean += sin(uv.x * 5.0 + time * 2.0) * 0.05;
 
-    vec2 u = f * f * (3.0 - 2.0 * f);
-    return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.y * u.x;
+    // Center the UV for the blade shape
+    vec2 bladeUV = vec2(frac.x - 0.5, frac.y / height);
+    bladeUV.x += lean * frac.y; // Apply lean
+
+    float blade = bladeShape(bladeUV);
+    blade *= step(frac.y, height); // Cut off blade at its random height
+
+    // Color and shade the blade
+    vec3 bladeColor = baseColor * mix(0.7, 1.3, h.y); // Vary color per blade
+    bladeColor = mix(bladeColor * 0.6, bladeColor, smoothstep(0.0, 0.3, frac.y)); // Darker at the bottom
+    
+    return vec4(bladeColor, blade);
   }
 
   void main() {
     vec3 baseColor = vColor;
-    bool isGrass = baseColor.g > baseColor.r && baseColor.g > baseColor.b * 1.2;
+    bool isGrass = baseColor.g > baseColor.r * 1.1 && baseColor.g > baseColor.b * 1.1;
 
     if (isGrass) {
-      // 1. Mottling (large scale color variation)
-      float mottling = noise(vWorldPosition.xz * 0.01) * 0.5 + 0.5; // from 0.5 to 1.0
-      vec3 grassDark = baseColor * 0.8;
-      vec3 grassLight = baseColor * 1.2;
-      baseColor = mix(grassDark, grassLight, mottling);
+      // --- BASE GROUND LAYER ---
+      // Low-frequency noise for subtle dirt/color patches on the ground
+      vec2 noiseUV = vWorldPosition.xz * 0.1;
+      vec2 i = floor(noiseUV);
+      vec2 f = fract(noiseUV);
+      vec2 u = f * f * (3.0 - 2.0 * f);
+      float n = mix(mix(hash(i).x, hash(i + vec2(1,0)).x, u.x),
+                    mix(hash(i + vec2(0,1)).x, hash(i + vec2(1,1)).x, u.x), u.y);
+      
+      vec3 groundColor = mix(baseColor * 0.7, baseColor * 0.9, smoothstep(0.4, 0.6, n));
 
-      // 2. Dirt patches
-      float dirtNoise = noise(vWorldPosition.xz * 0.1);
-      float dirtAmount = smoothstep(0.4, 0.55, dirtNoise);
-      vec3 dirtColor = vec3(0.4, 0.25, 0.1);
-      baseColor = mix(baseColor, dirtColor, dirtAmount);
+      // --- GRASS BLADE LAYERS ---
+      // We tile the world space and draw multiple layers of grass blades for density
+      vec2 grassUV = vWorldPosition.xz * 150.0; // Scale of the grass blades
+
+      // Layer 1 (Back)
+      vec4 grassLayer1 = drawGrassLayer(grassUV + hash(vec2(1.0)).yx * 0.5, uTime, baseColor);
+      // Layer 2 (Front)
+      vec4 grassLayer2 = drawGrassLayer(grassUV, uTime, baseColor);
+      
+      // Blend the layers: Start with the ground, then draw layer 1, then layer 2 on top.
+      baseColor = mix(groundColor, grassLayer1.rgb, grassLayer1.a);
+      baseColor = mix(baseColor, grassLayer2.rgb, grassLayer2.a);
+
     }
     
-    // 3. Lighting
+    // --- IMPROVED LIGHTING MODEL ---
     vec3 normal = normalize(vNormal);
-    float diffuse = max(0.0, dot(normal, uSunDirection));
     
-    // Simple ambient light so shadows aren't pure black
-    float ambient = 0.4;
-    float lighting = ambient + (diffuse * (1.0 - ambient));
+    // 1. Ambient Light
+    float ambientStrength = 0.4;
+    vec3 ambient = ambientStrength * vec3(1.0);
+
+    // 2. Diffuse Light
+    float diffuseStrength = max(0.0, dot(normal, uSunDirection));
+    vec3 diffuse = diffuseStrength * vec3(1.0);
+
+    // 3. Specular Light (Blinn-Phong)
+    vec3 halfwayDir = normalize(uSunDirection + vViewDirection);
+    float spec = pow(max(dot(normal, halfwayDir), 0.0), 32.0);
+    float specularStrength = isGrass ? 0.2 : 0.4; // Grass is less shiny
+    vec3 specular = specularStrength * spec * vec3(1.0);
+
+    vec3 lighting = ambient + diffuse + specular;
 
     gl_FragColor = vec4(baseColor * lighting, 1.0);
   }
 `;
-// ===================================
+// ==========================================
 
 function rebuildEdges(terrainGroup, terrainMesh) {
-  // ... (no changes in this function)
   if (!terrainMesh) return;
   if (edgesHelper) {
     if (edgesHelper.geometry) edgesHelper.geometry.dispose();
@@ -123,7 +177,6 @@ export function createTerrain(appState) {
         colors.setXYZ(i, defaultColor.r, defaultColor.g, defaultColor.b);
     }
 
-    // ========= MODIFIED: USE SHADER MATERIAL =========
     if (!terrainMaterial) {
       terrainMaterial = new THREE.ShaderMaterial({
         uniforms: {
@@ -136,10 +189,10 @@ export function createTerrain(appState) {
       });
       appState.terrainMaterial = terrainMaterial;
     }
-    // ===============================================
     
     const mesh = new THREE.Mesh(geom, terrainMaterial);
-    mesh.receiveShadow = true;
+    // While the shader does its own lighting, receiving shadows from other objects still works.
+    mesh.receiveShadow = true; 
 
     const terrainGroup = new THREE.Group();
     terrainGroup.name = 'TileTerrain';
@@ -166,7 +219,6 @@ export function createTerrain(appState) {
 }
 
 export function paintTextureOnTile(ci, cj, texture, radius, appState) {
-    // ... (This function remains exactly the same as the previous version)
     const { terrainMesh, config } = appState;
     if (!terrainMesh || !texture) return;
     const colorAttr = terrainMesh.geometry.attributes.color;
@@ -199,8 +251,94 @@ export function paintTextureOnTile(ci, cj, texture, radius, appState) {
     colorAttr.needsUpdate = true;
 }
 
-// ... (rest of the file is unchanged)
-export function randomizeTerrain(appState) { /* ... */ }
-export function applyHeightmapTemplate(name, appState) { /* ... */ }
+export function randomizeTerrain(appState) {
+    if (!appState.terrainMesh) return;
+    const arr = appState.terrainMesh.geometry.attributes.position.array;
+    for (let i = 1; i < arr.length; i += 3) {
+      arr[i] += (Math.random() - 0.5) * 2.5;
+    }
+    appState.terrainMesh.geometry.attributes.position.needsUpdate = true;
+    appState.terrainMesh.geometry.computeVertexNormals();
+    rebuildEdges(appState.terrainGroup, appState.terrainMesh);
+    if (appState.ball) appState.ball.refresh();
+}
+
+export function applyHeightmapTemplate(name, appState) {
+    if (!appState.terrainMesh) return;
+    const { terrainMesh, ball } = appState;
+    const { TILES_X, TILES_Y } = appState.config;
+    const pos = terrainMesh.geometry.attributes.position.array;
+    const minH = -80, maxH = 120, range = maxH - minH;
+    let idx = 1;
+    for (let jy = 0; jy <= TILES_Y; jy++) {
+        const v = jy / TILES_Y;
+        for (let ix = 0; ix <= TILES_X; ix++) {
+            const u = ix / TILES_X;
+            let n = 0;
+            switch (name) {
+                case 'Flat': n = -1; break;
+                case 'DiamondSquare': n = Math.abs(_fbm(u * 2.5, v * 2.5, 5, 2, .5)) * 2 - 1; break;
+                case 'Perlin': n = _fbm(u * 2.5, v * 2.5, 5, 2, .5, _perlin2); break;
+                case 'Simplex': n = _fbm(u * 2.8, v * 2.8, 6, 2.1, .5, _perlin2); break;
+                case 'Fault': n = _fault(u * 2.5, v * 2.5, 64); break;
+                case 'Cosine': n = Math.cos(_fbm(u * 2.0, v * 2.0, 4, 2, .5) * Math.PI); break;
+                case 'Value': n = _fbm((u * 2.5 | 0) + .001, (v * 2.5 | 0) + .001, 3, 2, .6, _perlin2); break;
+                case 'Worley': n = _worley2(u, v, 3, 16); break;
+                default: n = 0;
+            }
+            pos[idx] = minH + ((n + 1) * 0.5) * range;
+            idx += 3;
+        }
+    }
+    terrainMesh.geometry.attributes.position.needsUpdate = true;
+    terrainMesh.geometry.computeVertexNormals();
+    rebuildEdges(appState.terrainGroup, terrainMesh);
+    if (ball) ball.refresh();
+}
+
 const _clamp = (x, a, b) => Math.min(b, Math.max(a, x));
-// ... and so on
+const _smooth = (t) => t * t * (3 - 2 * t);
+const _perm = new Uint8Array(512);
+(() => {
+  const p = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) p[i] = i;
+  for (let j = 255; j > 0; j--) { const k = (Math.random() * (j + 1)) | 0; const t = p[j]; p[j] = p[k]; p[k] = t; }
+  for (let m = 0; m < 512; m++) _perm[m] = p[m & 255];
+})();
+const _grad2 = (h, x, y) => {
+  switch (h & 7) {
+    case 0: return x + y; case 1: return x - y; case 2: return -x + y; case 3: return -x - y;
+    case 4: return x; case 5: return -x; case 6: return y; default: return -y;
+  }
+};
+const _perlin2 = (x, y) => {
+  const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
+  x -= Math.floor(x); y -= Math.floor(y);
+  const u = _smooth(x), v = _smooth(y);
+  const aa = _perm[X + _perm[Y]], ab = _perm[X + _perm[Y + 1]], ba = _perm[X + 1 + _perm[Y]], bb = _perm[X + 1 + _perm[Y + 1]];
+  const x1 = (1 - u) * _grad2(aa, x, y) + u * _grad2(ba, x - 1, y);
+  const x2 = (1 - u) * _grad2(ab, x, y - 1) + u * _grad2(bb, x - 1, y - 1);
+  return (1 - v) * x1 + v * x2;
+};
+const _fbm = (x, y, o = 5, l = 2, g = .5, noise = _perlin2) => {
+  let a = 1, f = 1, s = 0, n = 0;
+  for (let i = 0; i < o; i++) { s += a * noise(x * f, y * f); n += a; a *= g; f *= l; }
+  return s / n;
+};
+const _worley2 = (u, v, cell = 1, pts = 16) => {
+  let md = 1e9;
+  for (let i = 0; i < pts; i++) {
+    const px = (Math.sin(i * 127.1) * 43758.5453) % 1, py = (Math.sin(i * 311.7) * 12543.1234) % 1;
+    const d = Math.hypot((u * cell % 1) - px, (v * cell % 1) - py);
+    if (d < md) md = d;
+  }
+  return 1.0 - _clamp(md * 2, 0, 1) * 2 + -1;
+};
+const _fault = (x, y, it = 50) => {
+  let h = 0;
+  for (let i = 0; i < it; i++) {
+    const a = Math.random() * Math.PI * 2, nx = Math.cos(a), ny = Math.sin(a), c = Math.random() * 2 - 1;
+    h += Math.sign(nx * x + ny * y - c) * (1 / it);
+  }
+  return _clamp(h, -1, 1);
+};
