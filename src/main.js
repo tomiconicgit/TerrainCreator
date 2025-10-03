@@ -1,7 +1,6 @@
 // file: src/main.js
-// Simplified UI + tile terrain + trees + sculpt (freezes camera) + Sky that grows with grid.
+// Uses vendor/three.sky.js directly. No src/sky.js wrapper.
 import BallMarker from './character.js';
-import { SkySystem } from './sky.js';
 
 // -- Error overlay --
 function showErrorOverlay(msg, err) {
@@ -13,12 +12,21 @@ function showErrorOverlay(msg, err) {
   document.body.appendChild(el);
 }
 
-// -- Load THREE local -> CDN (optional) --
+// -- Load THREE (local → CDN) --
 async function loadThree() {
   try { return await import('../vendor/three.module.js'); }
   catch (eLocal) {
     try { return await import('https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js'); }
     catch (eCdn) { showErrorOverlay('THREE not found. Add /vendor/three.module.js (r160).', eCdn); throw eCdn; }
+  }
+}
+
+// -- Load Sky class (local → CDN) --
+async function loadSkyClass() {
+  try { return (await import('../vendor/three.sky.js')).Sky; }
+  catch (eLocal) {
+    try { return (await import('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/objects/Sky.js')).Sky; }
+    catch (eCdn) { return null; }
   }
 }
 
@@ -37,17 +45,17 @@ async function loadThree() {
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;    // <-- better highlight rolloff
-  renderer.toneMappingExposure = 1.1;                     // <-- brighter by default
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
   renderer.shadowMap.enabled = true;
 
   const scene = new THREE.Scene();
-  scene.background = null; // let the Sky draw
+  scene.background = null; // let the sky render behind
 
   const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 20000);
   camera.position.set(600, 450, 600);
 
-  // Minimal orbit with .enabled (so we can freeze camera while sculpting)
+  // Minimal orbit with .enabled toggling
   class MiniOrbit {
     constructor(cam, dom){
       this.enabled = true;
@@ -78,14 +86,87 @@ async function loadThree() {
 
   // lights
   const sun = new THREE.DirectionalLight(0xffffff, 2.0);
-  sun.position.set(500,800,300); sun.castShadow = true;
+  sun.castShadow = true;
   scene.add(sun, new THREE.AmbientLight(0x445566, 0.6));
 
-  // --------- Sky ----------
-  const sky = new SkySystem(THREE, null, scene, renderer, sun);
-  await sky.load();
-  // Visible before first terrain build (100 tiles baseline)
-  sky.update(100 * TILE_SIZE, new THREE.Vector3(0,0,0));
+  // --------- Sky (direct) ----------
+  const Sky = await loadSkyClass();
+  let skyMesh = null, skyUniforms = null;
+  const pmremGen = new THREE.PMREMGenerator(renderer);
+  pmremGen.compileEquirectangularShader();
+  let envRT = null;
+
+  // sky params
+  const skyParams = {
+    turbidity: 2.5,
+    rayleigh: 2.0,
+    mieCoefficient: 0.004,
+    mieDirectionalG: 0.8,
+    elevation: 10,      // low sun so disk is visible
+    azimuth: 180,
+    exposure: 1.1
+  };
+
+  function ensureSky() {
+    if (skyMesh) return;
+    if (!Sky) return; // fallback handled by scene.background (already null/gradient of CSS)
+    skyMesh = new Sky();
+    skyMesh.name = 'Sky';
+    skyMesh.scale.setScalar(1000);
+    scene.add(skyMesh);
+    skyUniforms = skyMesh.material.uniforms;
+  }
+
+  function setSunAndSky(worldSpanUnits = 100, focus = new THREE.Vector3()) {
+    if (!skyMesh) return;
+
+    const phi = THREE.MathUtils.degToRad(90 - skyParams.elevation);
+    const theta = THREE.MathUtils.degToRad(skyParams.azimuth);
+    const sunDir = new THREE.Vector3().setFromSphericalCoords(1, phi, theta);
+
+    // uniforms
+    skyUniforms.turbidity.value = skyParams.turbidity;
+    skyUniforms.rayleigh.value = skyParams.rayleigh;
+    skyUniforms.mieCoefficient.value = skyParams.mieCoefficient;
+    skyUniforms.mieDirectionalG.value = skyParams.mieDirectionalG;
+    skyUniforms.sunPosition.value.copy(sunDir);
+
+    // size + exposure
+    const size = Math.max(100, worldSpanUnits);
+    skyMesh.scale.setScalar(size);
+    renderer.toneMappingExposure = skyParams.exposure;
+
+    // env map from CLONE (no reparenting)
+    if (envRT) { envRT.dispose(); envRT = null; }
+    const tmp = new THREE.Scene();
+    const skyClone = skyMesh.clone();
+    skyClone.material = skyMesh.material.clone();
+    skyClone.scale.copy(skyMesh.scale);
+    tmp.add(skyClone);
+    envRT = pmremGen.fromScene(tmp);
+    scene.environment = envRT.texture;
+    skyClone.geometry.dispose();
+    skyClone.material.dispose();
+
+    // direct light matches sun
+    const lightDist = Math.max(150, size * 1.5);
+    sun.position.copy(sunDir).multiplyScalar(lightDist);
+    const target = scene.getObjectByName('SunTarget') || new THREE.Object3D();
+    target.name = 'SunTarget';
+    if (!target.parent) scene.add(target);
+    target.position.copy(focus);
+    sun.target = target;
+
+    // fit shadow cam if orthographic
+    const ortho = sun.shadow.camera;
+    if (ortho && ortho.isOrthographicCamera) {
+      const half = Math.max(50, size * 0.75);
+      ortho.left = -half; ortho.right = half; ortho.top = half; ortho.bottom = -half;
+      ortho.updateProjectionMatrix();
+    }
+  }
+
+  ensureSky();
 
   // --------- Terrain / Trees / Ball ----------
   let terrainGroup=null, terrainMesh=null, edgesHelper=null, treesGroup=null, ball=null;
@@ -102,10 +183,11 @@ async function loadThree() {
   const planeWorldSize = () => ({ W: TILES_X * TILE_SIZE, H: TILES_Y * TILE_SIZE });
 
   function updateSkyBounds() {
+    if (!skyMesh) return;
     const tilesSpan = Math.max(TILES_X, TILES_Y);
     const tilesForSky = Math.max(100, tilesSpan);
     const worldSpanUnits = tilesForSky * TILE_SIZE;
-    sky.update(worldSpanUnits, new THREE.Vector3(0,0,0));
+    setSunAndSky(worldSpanUnits, new THREE.Vector3(0,0,0));
   }
 
   function buildTerrain(){
@@ -146,7 +228,7 @@ async function loadThree() {
     terrainGroup.add(edgesHelper);
   }
 
-  // --------- Heightmap templates (lightweight) ----------
+  // --------- Heightmap templates ----------
   const _clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
   const _smooth=t=>t*t*(3-2*t);
   const _perm=new Uint8Array(512); (function(){const p=new Uint8Array(256);for(let i=0;i<256;i++)p[i]=i;for(let i=255;i>0;i--){const j=(Math.random()*(i+1))|0;const t=p[i];p[i]=p[j];p[j]=t;}for(let i=0;i<512;i++)_perm[i]=p[i&255];})();
@@ -317,7 +399,7 @@ async function loadThree() {
   genBtn.addEventListener('click', ()=>{
     TILES_X = Math.max(2, Math.min(256, parseInt(tilesX.value||'30',10)));
     TILES_Y = Math.max(2, Math.min(256, parseInt(tilesY.value||'30',10)));
-    buildTerrain();           // world size auto = grid × TILE_SIZE
+    buildTerrain();
   });
 
   randBtn.addEventListener('click', ()=>{
@@ -347,7 +429,6 @@ async function loadThree() {
   const modeLower = document.getElementById('modeLower');
   const modeSmooth = document.getElementById('modeSmooth');
 
-  // Camera freeze when sculpt ON
   controls.enabled = !sculptOn.checked;
   sculptOn.addEventListener('change', ()=>{ controls.enabled = !sculptOn.checked; });
 
@@ -393,7 +474,8 @@ async function loadThree() {
   }
 
   // --------- Boot / Loop / SW ----------
-  buildTerrain();
+  buildTerrain();               // builds + updates sky bounds
+  setSunAndSky(100 * TILE_SIZE, new THREE.Vector3()); // ensure visible on first frame
 
   addEventListener('resize', ()=>{
     renderer.setSize(innerWidth, innerHeight);
