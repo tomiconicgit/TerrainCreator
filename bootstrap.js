@@ -1,10 +1,13 @@
-/* TerrainCreator Bootstrap — three-free
-   - Self-contained splash UI (title, % bar, status)
-   - Captures window errors, unhandled rejections, console.error
-   - Non-fatal preflight (no vendor imports)
-   - Loads ./src/main.js last; any failures are surfaced in the modal
+/* TerrainCreator Bootstrap — three-free + gated launch
+   - Splash with title, % bar, status
+   - Error capture (window.onerror, unhandledrejection, console.error)
+   - Modal with full logs + Copy All
+   - Preflight runs WITHOUT touching your vendors
+   - Shows a "Continue" button when checks pass
+   - Only then loads ./src/main.js
+   - If app import fails: bar turns red, modal opens, bootstrap stays on top
+   - Sets window.__tcBootstrapActive flag so your app can suppress its own overlay
 */
-
 (() => {
   const onReady = (fn) =>
     (document.readyState === 'loading')
@@ -12,6 +15,9 @@
       : fn();
 
   onReady(() => {
+    // mark bootstrap active so app can detect it
+    window.__tcBootstrapActive = true;
+
     // ---------- UI ----------
     const root = document.createElement('div');
     root.id = 'tc-bootstrap';
@@ -19,13 +25,20 @@
       <div class="wrap">
         <div class="brand">TerrainCreator</div>
         <div class="by">by Tom Iconic</div>
+
         <div class="bar"><div class="fill" style="width:0%"><span class="pct">0%</span></div></div>
         <div class="status" id="tc-status">Preparing…</div>
+
+        <div class="actions">
+          <button id="tc-continue" class="btn primary" disabled>Continue</button>
+        </div>
+
         <div class="debugline">
           <button class="debugbtn" id="tc-debug-toggle" aria-label="open errors" title="Show errors">+</button>
           <span class="debughint">Debug</span>
         </div>
       </div>
+
       <div class="modal hidden" id="tc-modal">
         <div class="modal-card">
           <div class="modal-head">
@@ -44,9 +57,11 @@
     const css = document.createElement('style');
     css.textContent = `
       #tc-bootstrap, #tc-bootstrap * { box-sizing: border-box; }
-      #tc-bootstrap { position: fixed; inset: 0; background: #0c0f14; color: #dbe3f1;
-        display: grid; place-items: center; z-index: 999999;
-        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+      #tc-bootstrap {
+        position: fixed; inset: 0; background: #0c0f14; color: #dbe3f1;
+        display: grid; place-items: center; z-index: 2147483647;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      }
       #tc-bootstrap .wrap { width: min(520px, 92vw); text-align: center; }
       .brand { font-size: 28px; font-weight: 800; letter-spacing: .3px; }
       .by { opacity: .7; margin-top: 2px; margin-bottom: 18px; }
@@ -54,11 +69,16 @@
       .fill { height: 100%; background: linear-gradient(180deg, #00adff, #007ee0); display:flex; align-items:center; justify-content:flex-end; position:relative; transition: width .25s ease; }
       .fill .pct { font-size: 11px; padding-right: 6px; color: white; text-shadow: 0 1px 0 rgba(0,0,0,.3); }
       .status { margin-top: 12px; opacity: .9; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; white-space: pre-line; }
+      .actions { margin-top: 14px; }
+      .btn { padding:8px 12px; border-radius: 10px; border:1px solid rgba(255,255,255,.18); background:#121720; color:#dbe3f1; font-weight:600; }
+      .btn.primary { background: linear-gradient(180deg, #00adff, #007ee0); border-color:#006cbf; color:#fff; }
+      .btn[disabled] { opacity:.5; filter:grayscale(0.2); }
       .debugline { margin-top: 12px; display:flex; align-items:center; justify-content:center; gap:8px; opacity:.85; }
       .debugbtn { width:26px; height:26px; border-radius: 999px; border:1px solid rgba(255,255,255,.2); background: transparent; color:#dbe3f1; font-weight:700; }
       .debugbtn:active { transform: translateY(1px); }
       .debughint { font-size: 12px; color: #93a0b5; }
       .errorbar { background: linear-gradient(180deg, #ff4d4d, #d92a2a) !important; }
+      /* Modal */
       .modal { position: fixed; inset: 0; display:grid; place-items:center; background: rgba(0,0,0,.45); }
       .modal.hidden { display: none; }
       .modal-card { width: min(780px, 94vw); max-height: 80vh; background: rgba(18,23,32,.95);
@@ -66,7 +86,6 @@
       .modal-head { display:flex; align-items:center; justify-content:space-between; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.12); }
       .modal-title { font-weight:700; }
       .modal-actions { display:flex; gap:8px; }
-      .btn { padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,.18); background:#121720; color:#dbe3f1; font-weight:600; }
       .btn-ghost { background: transparent; }
       .modal-body { overflow:auto; }
       #tc-log { margin:0; padding: 12px; font-size: 12px; line-height: 1.4; color: #cfe3ff; }
@@ -78,6 +97,7 @@
     const fillEl = root.querySelector('.fill');
     const pctEl = root.querySelector('.pct');
     const statusEl = root.querySelector('#tc-status');
+    const btnContinue = root.querySelector('#tc-continue');
     const modal = root.querySelector('#tc-modal');
     const logPre = root.querySelector('#tc-log');
     const btnToggle = root.querySelector('#tc-debug-toggle');
@@ -140,7 +160,7 @@
       setTimeout(() => (btnCopy.textContent = 'Copy All'), 1200);
     });
 
-    // ---------- Steps (no vendor imports) ----------
+    // ---------- Steps (vendor-free) ----------
     const steps = [];
     const addStep = (label, fn) => steps.push({ label, fn });
     const setStatus = (t) => (statusEl.textContent = t);
@@ -159,13 +179,11 @@
       const gl = cvs.getContext('webgl') || cvs.getContext('experimental-webgl');
       if (!gl) throw new Error('WebGL not available');
       if (!navigator.clipboard) {
-        // Not fatal; just warn
         pushError('feature.warn', { message: 'Clipboard API not available; Copy All may fail' });
       }
     });
 
     addStep('Checking application entry file', async () => {
-      // Non-fatal HEAD/GET to ensure ./src/main.js is reachable (not 404/HTML).
       try {
         const res = await fetch('./src/main.js', { method: 'GET', cache: 'no-store' });
         if (!res.ok) throw new Error(`./src/main.js HTTP ${res.status}`);
@@ -174,18 +192,13 @@
           pushError('mime.warn', { message: `Unexpected content-type for ./src/main.js: ${ct}` });
         }
       } catch (e) {
-        // Warn but continue; import() below will surface details if it truly fails.
         pushError('asset.warn', { step: 'Checking application entry file', message: e?.message || String(e) });
+        // keep going; import() will surface the real error
       }
     });
 
-    addStep('Loading application', async () => {
-      // Hand off to the app. Any runtime/syntax errors will be captured by the bootstrap listeners.
-      await import('./src/main.js');
-    });
-
     // ---------- Runner ----------
-    (async function run() {
+    (async function runPreflight() {
       const total = steps.length;
       for (let i = 0; i < total; i++) {
         const { label, fn } = steps[i];
@@ -201,14 +214,36 @@
           return;
         }
       }
-      // Success → 100% and fade out
+      // Preflight OK → enable Continue
       setProgress(total, total, false);
-      setStatus('Ready');
-      setTimeout(() => {
-        root.style.opacity = '0';
-        root.style.transition = 'opacity .25s ease';
-        setTimeout(() => { root.remove(); css.remove(); }, 260);
-      }, 250);
+      setStatus('Preflight complete');
+      btnContinue.disabled = false;
     })();
+
+    // ---------- Gated launch ----------
+    btnContinue.addEventListener('click', async () => {
+      btnContinue.disabled = true;
+      setStatus('Launching app…');
+      try {
+        await import('./src/main.js');      // any syntax/runtime error is caught below
+        // success → fade out and clean up
+        setStatus('Ready');
+        setTimeout(() => {
+          root.style.opacity = '0';
+          root.style.transition = 'opacity .25s ease';
+          setTimeout(() => {
+            window.__tcBootstrapActive = false;
+            root.remove(); css.remove();
+          }, 260);
+        }, 200);
+      } catch (e) {
+        // app failed to load — keep bootstrap visible
+        fillEl.classList.add('errorbar');
+        setStatus('App failed to launch');
+        pushError('app.import.fail', { message: e?.message || String(e), stack: e?.stack || null });
+        modal.classList.remove('hidden');
+        btnContinue.disabled = false; // allow retry
+      }
+    });
   });
 })();
