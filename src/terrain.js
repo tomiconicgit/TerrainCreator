@@ -5,13 +5,100 @@ import BallMarker from './character.js';
 
 let edgesHelper = null;
 
-const TEXTURE_COLORS = {
-    grass: new THREE.Color(0x559040),
-    sand: new THREE.Color(0xdacfa0),
-    gravel: new THREE.Color(0x959794),
-    stone: new THREE.Color(0x6b7280),
+// Define colours and texture blend weights
+const TEXTURE_INFO = {
+    grass: { color: new THREE.Color(0x559040), weight: new THREE.Vector3(0, 1, 0) },
+    sand:  { color: new THREE.Color(0xdacfa0), weight: new THREE.Vector3(0, 0, 1) },
+    gravel:{ color: new THREE.Color(0x959794), weight: new THREE.Vector3(0, 0, 0) }, // Will appear as base
+    stone: { color: new THREE.Color(0x6b7280), weight: new THREE.Vector3(0, 0, 0) }, // Will appear as base
+    leaves:{ color: new THREE.Color(0x69553f), weight: new THREE.Vector3(1, 0, 0) },
 };
 const DEFAULT_TEXTURE = 'grass';
+
+// --- NEW SHADER ---
+// This shader blends textures based on vertex colors (R=Leaves, G=Grass, B=Sand)
+const vertexShader = `
+  varying vec2 vUv;
+  varying vec3 vColor;
+  varying vec3 vNormal;
+  varying vec3 vWorldPosition;
+  varying mat3 vTBN;
+
+  void main() {
+    vUv = uv;
+    vColor = color;
+    vNormal = normalize(normalMatrix * normal);
+    vWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+
+    // For Normal Mapping
+    vec3 worldNormal = normalize(vec3(modelMatrix * vec4(normal, 0.0)));
+    vec3 worldTangent = normalize(vec3(modelMatrix * vec4(tangent.xyz, 0.0)));
+    vec3 worldBitangent = cross(worldNormal, worldTangent) * tangent.w;
+    vTBN = mat3(worldTangent, worldBitangent, worldNormal);
+
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const fragmentShader = `
+  uniform sampler2D uGrassDiffuse;
+  uniform sampler2D uSandDiffuse;
+  uniform sampler2D uLeavesDiffuse;
+  uniform sampler2D uLeavesNormal;
+  uniform sampler2D uLeavesRoughness;
+
+  uniform vec3 uSunDirection;
+  uniform vec3 uDirLightColor;
+  uniform float uDirLightIntensity;
+
+  varying vec2 vUv;
+  varying vec3 vColor; // Blend weights (R: leaves, G: grass, B: sand)
+  varying vec3 vNormal;
+  varying vec3 vWorldPosition;
+  varying mat3 vTBN;
+
+  void main() {
+    // --- 1. Texture Blending ---
+    float textureScale = 20.0;
+    vec3 grassColor = texture2D(uGrassDiffuse, vUv * textureScale).rgb;
+    vec3 sandColor = texture2D(uSandDiffuse, vUv * textureScale).rgb;
+    vec3 leavesColor = texture2D(uLeavesDiffuse, vUv * textureScale).rgb;
+
+    // Blend diffuse colors based on vertex color weights
+    vec3 baseColor = mix(grassColor, sandColor, vColor.b); // Mix grass and sand
+    vec3 blendedDiffuse = mix(baseColor, leavesColor, vColor.r); // Mix in leaves
+
+    // --- 2. Normal Mapping ---
+    vec3 leavesNormal = texture2D(uLeavesNormal, vUv * textureScale).xyz * 2.0 - 1.0;
+    vec3 perturbedNormal = normalize(vTBN * leavesNormal);
+    vec3 finalNormal = mix(normalize(vNormal), perturbedNormal, vColor.r); // Only apply leaves normal where painted
+
+    // --- 3. Roughness ---
+    float leavesRoughness = texture2D(uLeavesRoughness, vUv * textureScale).r;
+    float blendedRoughness = mix(0.9, leavesRoughness, vColor.r); // Base roughness vs leaves roughness
+
+    // --- 4. Lighting (Simplified PBR) ---
+    // Ambient Light (from sky)
+    float skyFactor = dot(finalNormal, vec3(0.0, 1.0, 0.0)) * 0.5 + 0.5;
+    vec3 skyLight = mix(vec3(0.3, 0.2, 0.1), vec3(0.4, 0.5, 0.7), skyFactor) * 0.5;
+
+    // Direct Sun Light
+    float diffuseStrength = max(0.0, dot(finalNormal, uSunDirection));
+    vec3 diffuse = diffuseStrength * uDirLightColor * uDirLightIntensity;
+
+    // Specular
+    vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
+    vec3 halfwayDir = normalize(uSunDirection + viewDirection);
+    float spec = pow(max(dot(finalNormal, halfwayDir), 0.0), 32.0);
+    vec3 specular = (spec * (1.0 - blendedRoughness)) * uDirLightColor * uDirLightIntensity * 0.5;
+
+    vec3 lighting = skyLight + diffuse + specular;
+    vec3 finalColor = blendedDiffuse * lighting;
+
+    gl_FragColor = vec4(finalColor, 1.0);
+  }
+`;
+
 
 function rebuildEdges(terrainGroup, terrainMesh) {
   if (!terrainMesh) return;
@@ -39,21 +126,56 @@ export function createTerrain(appState) {
 
     const geom = new THREE.PlaneGeometry(W, H, TILES_X, TILES_Y);
     geom.rotateX(-Math.PI / 2);
+    geom.computeTangents(); // IMPORTANT: Needed for normal mapping
 
+    // --- Load Textures ---
+    const textureLoader = new THREE.TextureLoader();
+    const loadTexture = (path) => {
+        const texture = textureLoader.load(path);
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        return texture;
+    };
+    
+    // NOTE: You'll need to provide your own grass and sand textures
+    // For now, we'll create simple 1x1 pixel placeholders
+    const createPlaceholderTexture = (color) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1;
+        canvas.height = 1;
+        const context = canvas.getContext('2d');
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+        return new THREE.CanvasTexture(canvas);
+    };
+
+    const terrainMaterial = new THREE.ShaderMaterial({
+        uniforms: {
+          // Texture uniforms
+          uGrassDiffuse: { value: createPlaceholderTexture('#559040') },
+          uSandDiffuse: { value: createPlaceholderTexture('#dacfa0') },
+          uLeavesDiffuse: { value: loadTexture('./assets/textures/leaves-diffuse.jpg') },
+          uLeavesNormal: { value: loadTexture('./assets/textures/leaves-normal.png') },
+          uLeavesRoughness: { value: loadTexture('./assets/textures/leaves-roughness.jpg') },
+          // Lighting uniforms (will be updated in main.js)
+          uSunDirection: { value: new THREE.Vector3(0.707, 0.707, 0) },
+          uDirLightColor: { value: new THREE.Color(0xffffff) },
+          uDirLightIntensity: { value: 1.0 },
+        },
+        vertexShader: vertexShader,
+        fragmentShader: fragmentShader,
+        vertexColors: true,
+      });
+      appState.terrainMaterial = terrainMaterial;
+    
+    // Set initial vertex colors to be all grass (0,1,0)
     const vertexCount = geom.attributes.position.count;
     geom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(vertexCount * 3), 3));
     const colors = geom.attributes.color;
-    const defaultColor = TEXTURE_COLORS[DEFAULT_TEXTURE];
+    const defaultWeight = TEXTURE_INFO[DEFAULT_TEXTURE].weight;
     for (let i = 0; i < vertexCount; i++) {
-        colors.setXYZ(i, defaultColor.r, defaultColor.g, defaultColor.b);
+        colors.setXYZ(i, defaultWeight.x, defaultWeight.y, defaultWeight.z);
     }
-
-    const terrainMaterial = new THREE.MeshStandardMaterial({
-        vertexColors: true,
-        roughness: 0.9,
-        metalness: 0.1,
-    });
-    appState.terrainMaterial = terrainMaterial;
     
     const mesh = new THREE.Mesh(geom, terrainMaterial);
     mesh.receiveShadow = true; 
@@ -82,14 +204,15 @@ export function createTerrain(appState) {
     });
 }
 
+// --- MODIFIED PAINTING LOGIC ---
 export function paintTextureOnTile(ci, cj, texture, radius, appState) {
     const { terrainMesh, config, ball } = appState;
     if (!terrainMesh || !texture) return;
 
     const colorAttr = terrainMesh.geometry.attributes.color;
     const positionAttr = terrainMesh.geometry.attributes.position;
-    const brushColor = TEXTURE_COLORS[texture];
-    if (!brushColor) return;
+    const brushWeight = TEXTURE_INFO[texture]?.weight;
+    if (!brushWeight) return; // Exit if texture is not in our list
 
     const vpr = config.TILES_X + 1;
     const getTileVertexIndices = (i, j) => {
@@ -98,40 +221,29 @@ export function paintTextureOnTile(ci, cj, texture, radius, appState) {
         return [tl, tr, bl, br];
     };
     
-    const existingColor = new THREE.Color();
+    const existingWeight = new THREE.Vector3();
     for (let j = cj - radius; j <= cj + radius; j++) {
         for (let i = ci - radius; i <= ci + radius; i++) {
             if (i >= 0 && i < config.TILES_X && j >= 0 && j < config.TILES_Y) {
                 const dist = Math.hypot(i - ci, j - cj);
                 if (dist <= radius) {
-                    const normalizedDist = dist / radius;
-                    const blendStrength = Math.max(0, 1.0 - normalizedDist * normalizedDist);
+                    const falloff = Math.max(0, 1.0 - (dist / radius));
+                    const blendStrength = falloff * falloff * 0.1; // Slow blend
                     
                     const vertexIndices = getTileVertexIndices(i, j);
                     vertexIndices.forEach(vi => {
-                        existingColor.fromBufferAttribute(colorAttr, vi);
-                        existingColor.lerp(brushColor, blendStrength);
-                        colorAttr.setXYZ(vi, existingColor.r, existingColor.g, existingColor.b);
+                        existingWeight.fromBufferAttribute(colorAttr, vi);
+                        
+                        // Lerp towards the target weight
+                        existingWeight.lerp(brushWeight, blendStrength);
 
-                        if (texture === 'grass' || texture === 'sand') {
-                            const x = positionAttr.getX(vi);
-                            const z = positionAttr.getZ(vi);
-                            let frequency = 0.0;
-                            let amplitude = 0.0;
-
-                            if(texture === 'grass') {
-                                frequency = 0.8;
-                                amplitude = 0.3; 
-                            } else {
-                                frequency = 0.1;
-                                amplitude = 0.2;
-                            }
-
-                            const noise = _perlin2(x * frequency, z * frequency);
-                            const displacement = noise * amplitude * blendStrength;
-                            
-                            positionAttr.setY(vi, positionAttr.getY(vi) + displacement);
+                        // Normalize the weights so they sum to 1 (prevents weird blending)
+                        const total = existingWeight.x + existingWeight.y + existingWeight.z;
+                        if (total > 0.0) {
+                            existingWeight.divideScalar(total);
                         }
+
+                        colorAttr.setXYZ(vi, existingWeight.x, existingWeight.y, existingWeight.z);
                     });
                 }
             }
@@ -139,9 +251,7 @@ export function paintTextureOnTile(ci, cj, texture, radius, appState) {
     }
 
     colorAttr.needsUpdate = true;
-    positionAttr.needsUpdate = true;
-    terrainMesh.geometry.computeVertexNormals();
-
+    // No need to update position or normals when just painting
     if (ball) ball.refresh();
 }
 
