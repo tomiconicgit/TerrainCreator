@@ -13,13 +13,13 @@ let paintCanvas, paintCtx, canvasTexture;
 const textureImages = {}; 
 let baseTextureLoaded = false;
 
-// --- NEW: Control the painted texture size ---
-// A higher number makes the texture appear smaller and more tiled.
-const texturePaintScale = 5.0;
+// Control the painted texture size. A higher number = smaller, more tiled texture.
+const texturePaintScale = 25.0;
 
 // Pre-load all images we need for painting
 function loadTextureImages(callback) {
     const texturesToLoad = {
+        // Add other textures here for painting, e.g., 'sand': './src/assets/textures/sand.jpg'
         leaves: './src/assets/textures/leaves-diffuse.jpg',
     };
     const textureKeys = Object.keys(texturesToLoad);
@@ -33,7 +33,7 @@ function loadTextureImages(callback) {
             textureImages[key] = img;
             loadedCount++;
             if (loadedCount === textureKeys.length) {
-                callback();
+                if (callback) callback();
             }
         };
     });
@@ -66,8 +66,10 @@ export function createTerrain(appState) {
 
     const geom = new THREE.PlaneGeometry(W, H, TILES_X, TILES_Y);
     geom.rotateX(-Math.PI / 2);
-    
-    if (!paintCanvas) {
+    geom.computeTangents();
+
+    // --- Setup the Canvas Texture for Painting ---
+    if (!paintCanvas) { // Initialize canvas only once
         paintCanvas = document.createElement('canvas');
         paintCanvas.width = CANVAS_SIZE;
         paintCanvas.height = CANVAS_SIZE;
@@ -75,28 +77,34 @@ export function createTerrain(appState) {
         canvasTexture = new THREE.CanvasTexture(paintCanvas);
         canvasTexture.colorSpace = THREE.SRGBColorSpace;
     }
-    
+
+    // Fill canvas with a base green color every time terrain is generated
     paintCtx.fillStyle = '#559040';
     paintCtx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
     canvasTexture.needsUpdate = true;
-    
-    const textureLoader = new THREE.TextureLoader();
-    const normalMap = textureLoader.load('./src/assets/textures/leaves-normal.png');
 
+    const textureLoader = new THREE.TextureLoader();
+    
+    // --- Create the MeshStandardMaterial ---
     const terrainMaterial = new THREE.MeshStandardMaterial({
+        // The .map is now our dynamic, paintable canvas
         map: canvasTexture,
-        normalMap: normalMap,
+        // We can still apply roughness/normal maps for overall surface detail
+        roughnessMap: textureLoader.load('./src/assets/textures/leaves-roughness.jpg'),
+        normalMap: textureLoader.load('./src/assets/textures/leaves-normal.png'),
+        normalScale: new THREE.Vector2(0.5, 0.5), 
     });
     appState.terrainMaterial = terrainMaterial;
     
-    const mesh = new THREE.Mesh(geom, terrainMaterial);
-    mesh.receiveShadow = true; 
-
+    // Load images for the paint brushes
     if (!baseTextureLoaded) {
         loadTextureImages(() => {
             baseTextureLoaded = true;
         });
     }
+    
+    const mesh = new THREE.Mesh(geom, terrainMaterial);
+    mesh.receiveShadow = true; 
 
     const terrainGroup = new THREE.Group();
     terrainGroup.name = 'TileTerrain';
@@ -122,17 +130,21 @@ export function createTerrain(appState) {
     });
 }
 
-// --- UPDATED Canvas Painting Logic with Tiling ---
+// --- RE-ENABLING Canvas Painting Logic ---
 export function paintTextureOnTile(ci, cj, texture, radius, appState) {
+    // Exit if the canvas or the selected brush image isn't ready
     if (!paintCtx || !textureImages[texture]) return;
 
     const { config } = appState;
 
+    // Convert tile coordinates to canvas pixel coordinates
     const canvasX = ((ci + 0.5) / config.TILES_X) * CANVAS_SIZE;
     const canvasY = ((cj + 0.5) / config.TILES_Y) * CANVAS_SIZE;
+    
+    // Convert paint radius from tiles to pixels
     const pixelRadius = (radius / Math.max(config.TILES_X, config.TILES_Y)) * CANVAS_SIZE;
 
-    // Create a repeating pattern from the texture image
+    // Create a repeating pattern from the brush image
     const pattern = paintCtx.createPattern(textureImages[texture], 'repeat');
 
     // Create a transformation matrix to scale the pattern
@@ -151,7 +163,6 @@ export function paintTextureOnTile(ci, cj, texture, radius, appState) {
     canvasTexture.needsUpdate = true;
 }
 
-
 export function randomizeTerrain(appState) {
     if (!appState.terrainMesh) return;
     const arr = appState.terrainMesh.geometry.attributes.position.array;
@@ -166,9 +177,8 @@ export function randomizeTerrain(appState) {
 
 export function applyHeightmapTemplate(name, appState) {
     if (!appState.terrainMesh) return;
-    const { terrainMesh, ball, config } = appState;
-    const { TILES_X, TILES_Y } = config;
-
+    const { terrainMesh, ball } = appState;
+    const { TILES_X, TILES_Y } = appState.config;
     const pos = terrainMesh.geometry.attributes.position.array;
     const minH = -80, maxH = 120, range = maxH - minH;
     let idx = 1;
@@ -194,10 +204,11 @@ export function applyHeightmapTemplate(name, appState) {
     }
     terrainMesh.geometry.attributes.position.needsUpdate = true;
     terrainMesh.geometry.computeVertexNormals();
-    rebuildEdges(appState.terrainGroup, appState.terrainMesh);
+    rebuildEdges(appState.terrainGroup, terrainMesh);
     if (ball) ball.refresh();
 }
 
+// Noise functions remain the same
 const _clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const _smooth = (t) => t * t * (3 - 2 * t);
 const _perm = new Uint8Array(512);
