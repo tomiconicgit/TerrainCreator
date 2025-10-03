@@ -1,31 +1,73 @@
 // file: src/camera.js
 import * as THREE from 'three';
 
-// Minimal orbit controls with enable toggle + dynamic bounds + follow target
+// Minimal orbit controls with pinch-to-zoom support
 class MiniOrbit {
   constructor(cam, dom) {
     this.enabled = true;
     this.cam = cam; this.dom = dom; this.target = new THREE.Vector3(0, 0, 0);
     this.sph = new THREE.Spherical().setFromVector3(cam.position.clone().sub(this.target));
-    this.dt = 0; this.dp = 0; this.dr = 0; this.damp = 0.1; this.rot = 0.0025; this.zoom = 0.25; this.ptrs = new Map();
-    this.minRadius = 5;
-    this.maxRadius = 5000;
+    this.dt = 0; this.dp = 0; this.dr = 0; this.damp = 0.1; this.rot = 0.0025; this.zoom = 0.25;
+    
+    // State for multi-touch
+    this.ptrs = new Map();
+    this.prevPinchDist = null;
 
     const self = this;
+    
     dom.addEventListener('pointerdown', (e) => {
       if (!self.enabled) return;
       try { dom.setPointerCapture(e.pointerId); } catch (_) {}
       self.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      // If this is the second finger, record the initial pinch distance
+      if (self.ptrs.size === 2) {
+        const pointers = Array.from(self.ptrs.values());
+        const dx = pointers[0].x - pointers[1].x;
+        const dy = pointers[0].y - pointers[1].y;
+        self.prevPinchDist = Math.hypot(dx, dy);
+      }
     });
+
     dom.addEventListener('pointermove', (e) => {
       if (!self.enabled || !self.ptrs.has(e.pointerId)) return;
+      
       const p = self.ptrs.get(e.pointerId);
-      const dx = e.clientX - p.x;
-      const dy = e.clientY - p.y;
+      const dx_single = e.clientX - p.x;
+      const dy_single = e.clientY - p.y;
       self.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (self.ptrs.size === 1) { self.dt -= dx * self.rot; self.dp -= dy * self.rot; }
+
+      // Single-finger drag for rotation
+      if (self.ptrs.size === 1) {
+        self.dt -= dx_single * self.rot;
+        self.dp -= dy_single * self.rot;
+      }
+      // Two-finger pinch for zoom
+      else if (self.ptrs.size === 2) {
+        const pointers = Array.from(self.ptrs.values());
+        const dx = pointers[0].x - pointers[1].x;
+        const dy = pointers[0].y - pointers[1].y;
+        const currentDist = Math.hypot(dx, dy);
+
+        if (self.prevPinchDist) {
+          const delta = currentDist - self.prevPinchDist;
+          // Spreading fingers (positive delta) should zoom in (decrease radius)
+          self.dr -= delta * 0.75; // Sensitivity factor for pinch
+        }
+        
+        self.prevPinchDist = currentDist; // Update for the next frame
+      }
     });
-    window.addEventListener('pointerup', (e) => { self.ptrs.delete(e.pointerId); });
+
+    window.addEventListener('pointerup', (e) => {
+      self.ptrs.delete(e.pointerId);
+      // When a finger is lifted, reset the pinch state
+      if (self.ptrs.size < 2) {
+        self.prevPinchDist = null;
+      }
+    });
+    
+    // Mouse wheel zoom (desktop)
     dom.addEventListener('wheel', (e) => {
       if (!self.enabled) return;
       try { e.preventDefault(); } catch (_) {}
