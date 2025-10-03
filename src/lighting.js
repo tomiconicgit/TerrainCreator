@@ -12,5 +12,6 @@ export function initLighting(scene) {
   scene.add(lightTarget);
   dirLight.target = lightTarget;
   
-  return { dirLight, lightTarget };
+  // Return both lights now
+  return { dirLight, ambientLight, lightTarget };
 }
