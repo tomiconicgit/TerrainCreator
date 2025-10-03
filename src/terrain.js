@@ -14,7 +14,7 @@ const TEXTURE_COLORS = {
 };
 const DEFAULT_TEXTURE = 'grass';
 
-// ========= SIMPLIFIED TERRAIN SHADER =========
+// ========= UPGRADED TERRAIN SHADER (GREEN/DIRT MIX) =========
 const vertexShader = `
   varying vec3 vNormal;
   varying vec3 vColor;
@@ -40,30 +40,59 @@ const fragmentShader = `
   varying vec3 vNormal;
   varying vec3 vColor;
   varying vec3 vViewDirection;
+  varying vec3 vWorldPosition;
+
+  // Simple pseudo-random noise function
+  float random(vec2 st) {
+    return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
+  }
+
+  // 2D Noise function based on the random function
+  float noise(vec2 st) {
+    vec2 i = floor(st);
+    vec2 f = fract(st);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    float a = random(i);
+    float b = random(i + vec2(1.0, 0.0));
+    float c = random(i + vec2(0.0, 1.0));
+    float d = random(i + vec2(1.0, 1.0));
+    return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.y * u.x;
+  }
 
   void main() {
     vec3 baseColor = vColor;
+    bool isGrass = baseColor.g > baseColor.r * 1.1 && baseColor.g > baseColor.b * 1.1;
+
+    if (isGrass) {
+      // 1. Mottling (large scale color variation)
+      float mottling = noise(vWorldPosition.xz * 0.03) * 0.5 + 0.5;
+      vec3 grassDark = baseColor * 0.8;
+      vec3 grassLight = baseColor * 1.2;
+      baseColor = mix(grassDark, grassLight, mottling);
+
+      // 2. Dirt patches
+      float dirtNoise = noise(vWorldPosition.xz * 0.2);
+      float dirtAmount = smoothstep(0.4, 0.55, dirtNoise);
+      vec3 dirtColor = vec3(0.4, 0.25, 0.1);
+      baseColor = mix(baseColor, dirtColor, dirtAmount);
+    }
     
     // Standard Blinn-Phong Lighting Model
     vec3 normal = normalize(vNormal);
-    
     float ambientStrength = 0.4;
     vec3 ambient = ambientStrength * vec3(1.0);
-
     float diffuseStrength = max(0.0, dot(normal, uSunDirection));
     vec3 diffuse = diffuseStrength * vec3(1.0);
-
     vec3 halfwayDir = normalize(uSunDirection + vViewDirection);
     float spec = pow(max(dot(normal, halfwayDir), 0.0), 32.0);
     float specularStrength = 0.3;
     vec3 specular = specularStrength * spec * vec3(1.0);
-
     vec3 lighting = ambient + diffuse + specular;
 
     gl_FragColor = vec4(baseColor * lighting, 1.0);
   }
 `;
-// ===========================================
+// =========================================================
 
 function rebuildEdges(terrainGroup, terrainMesh) {
   if (!terrainMesh) return;
@@ -139,18 +168,23 @@ export function createTerrain(appState) {
     });
 }
 
+// ========= MODIFIED: PAINT FUNCTION NOW RAISES THE MESH FOR GRASS =========
 export function paintTextureOnTile(ci, cj, texture, radius, appState) {
-    const { terrainMesh, config } = appState;
+    const { terrainMesh, config, ball } = appState;
     if (!terrainMesh || !texture) return;
+
     const colorAttr = terrainMesh.geometry.attributes.color;
+    const positionAttr = terrainMesh.geometry.attributes.position;
     const brushColor = TEXTURE_COLORS[texture];
     if (!brushColor) return;
+
     const vpr = config.TILES_X + 1;
     const getTileVertexIndices = (i, j) => {
         const tl = j * vpr + i; const tr = tl + 1;
         const bl = (j + 1) * vpr + i; const br = bl + 1;
         return [tl, tr, bl, br];
     };
+    
     const existingColor = new THREE.Color();
     for (let j = cj - radius; j <= cj + radius; j++) {
         for (let i = ci - radius; i <= ci + radius; i++) {
@@ -159,18 +193,36 @@ export function paintTextureOnTile(ci, cj, texture, radius, appState) {
                 if (dist <= radius) {
                     const normalizedDist = dist / radius;
                     const blendStrength = Math.max(0, 1.0 - normalizedDist * normalizedDist);
+                    
                     const vertexIndices = getTileVertexIndices(i, j);
                     vertexIndices.forEach(vi => {
+                        // Blend the color
                         existingColor.fromBufferAttribute(colorAttr, vi);
                         existingColor.lerp(brushColor, blendStrength);
                         colorAttr.setXYZ(vi, existingColor.r, existingColor.g, existingColor.b);
+
+                        // --- NEW: If texture is grass, raise the mesh ---
+                        if (texture === 'grass') {
+                            const currentY = positionAttr.getY(vi);
+                            // Add a small, random displacement based on blend strength
+                            const displacement = (Math.random() * 0.5) * blendStrength;
+                            positionAttr.setY(vi, currentY + displacement);
+                        }
                     });
                 }
             }
         }
     }
+
+    // IMPORTANT: Tell Three.js to update the buffers and re-calculate lighting
     colorAttr.needsUpdate = true;
+    positionAttr.needsUpdate = true;
+    terrainMesh.geometry.computeVertexNormals();
+
+    // Refresh the ball character's position in case the ground moved under it
+    if (ball) ball.refresh();
 }
+// =========================================================================
 
 export function randomizeTerrain(appState) {
     if (!appState.terrainMesh) return;
