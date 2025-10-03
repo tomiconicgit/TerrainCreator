@@ -18,7 +18,7 @@ async function startApp() {
         camera: null,
         controls: null,
         dirLight: null,
-        ambientLight: null, // Add a reference for the ambient light
+        // ambientLight: null, // REMOVED
         lightTarget: null,
         terrainGroup: null,
         terrainMesh: null,
@@ -52,10 +52,8 @@ async function startApp() {
     appState.camera = camera;
     appState.controls = controls;
 
-    // We now need to get the ambient light from our lighting setup
-    const { dirLight, ambientLight, lightTarget } = initLighting(scene);
+    const { dirLight, lightTarget } = initLighting(scene);
     appState.dirLight = dirLight;
-    appState.ambientLight = ambientLight;
     appState.lightTarget = lightTarget;
 
     initSky(scene, renderer);
@@ -86,16 +84,13 @@ async function startApp() {
     });
 
     renderer.setAnimationLoop(() => {
-        // ========= NEW: PASS ALL LIGHT DATA TO SHADER =========
         if (appState.terrainMaterial) {
             const uniforms = appState.terrainMaterial.uniforms;
             uniforms.uSunDirection.value.copy(appState.dirLight.position).normalize();
             uniforms.uDirLightColor.value.copy(appState.dirLight.color);
             uniforms.uDirLightIntensity.value = appState.dirLight.intensity;
-            // Combine ambient light color and intensity into one uniform
-            uniforms.uAmbientLightColor.value.copy(appState.ambientLight.color).multiplyScalar(appState.ambientLight.intensity);
+            // REMOVED ambient light uniform update
         }
-        // ======================================================
 
         if (appState.camFollowEnabled && appState.ball?.mesh) {
             controls.lookAt(appState.ball.mesh.position);
