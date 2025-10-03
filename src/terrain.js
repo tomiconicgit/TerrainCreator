@@ -55,11 +55,11 @@ export function createTerrain(appState) {
     // --- Create the MeshStandardMaterial ---
     const terrainMaterial = new THREE.MeshStandardMaterial({
         // Diffuse / Color Map
-        map: loadTexture('./assets/textures/leaves-diffuse.jpg'),
+        map: loadTexture('./src/assets/textures/leaves-diffuse.jpg'), // PATH UPDATED
         // Roughness Map
-        roughnessMap: loadTexture('./assets/textures/leaves-roughness.jpg'),
+        roughnessMap: loadTexture('./src/assets/textures/leaves-roughness.jpg'), // PATH UPDATED
         // Normal Map
-        normalMap: loadTexture('./assets/textures/leaves-normal.png'),
+        normalMap: loadTexture('./src/assets/textures/leaves-normal.png'), // PATH UPDATED
         // Adjust normal map intensity if needed
         normalScale: new THREE.Vector2(0.5, 0.5), 
     });
@@ -199,4 +199,3 @@ const _fault = (x, y, it = 50) => {
   }
   return _clamp(h, -1, 1);
 };
-
