@@ -1,6 +1,6 @@
 // file: src/sky.js
 import * as THREE from 'three';
-import { Sky } from '../../vendor/three.sky.js';
+import { Sky } from '../vendor/three.sky.js'; // Corrected path
 
 const skyParams = {
   turbidity: 2.5,
