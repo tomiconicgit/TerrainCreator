@@ -41,7 +41,6 @@ export function createTerrain(appState) {
     const geom = new THREE.PlaneGeometry(W, H, TILES_X, TILES_Y);
     geom.rotateX(-Math.PI / 2);
 
-    // ADD VERTEX COLOR ATTRIBUTE
     const vertexCount = geom.attributes.position.count;
     geom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(vertexCount * 3), 3));
     const colors = geom.attributes.color;
@@ -50,9 +49,8 @@ export function createTerrain(appState) {
         colors.setXYZ(i, defaultColor.r, defaultColor.g, defaultColor.b);
     }
 
-    // ENABLE VERTEX COLORS IN MATERIAL
     const mat = new THREE.MeshStandardMaterial({ 
-        vertexColors: true, // This tells the material to use the 'color' attribute
+        vertexColors: true,
         metalness: 0.05, 
         roughness: 0.9 
     });
@@ -84,45 +82,58 @@ export function createTerrain(appState) {
     });
 }
 
-// TEXTURE PAINTING FUNCTION
+// ========= MODIFIED: TEXTURE PAINTING FUNCTION WITH BLENDING =========
 export function paintTextureOnTile(ci, cj, texture, radius, appState) {
     const { terrainMesh, config } = appState;
     if (!terrainMesh || !texture) return;
 
     const colorAttr = terrainMesh.geometry.attributes.color;
-    const color = TEXTURE_COLORS[texture];
+    const brushColor = TEXTURE_COLORS[texture];
     if (!color) return;
 
-    const vpr = config.TILES_X + 1; // Vertices per row
-
-    // This function gets all vertex indices for a given tile (i, j)
+    const vpr = config.TILES_X + 1;
     const getTileVertexIndices = (i, j) => {
-        const tl = j * vpr + i;       // Top-left
-        const tr = tl + 1;            // Top-right
-        const bl = (j + 1) * vpr + i; // Bottom-left
-        const br = bl + 1;            // Bottom-right
+        const tl = j * vpr + i;
+        const tr = tl + 1;
+        const bl = (j + 1) * vpr + i;
+        const br = bl + 1;
         return [tl, tr, bl, br];
     };
     
-    // We iterate in a square around the center point (ci, cj)
+    // Create a re-usable Color object to read existing vertex colors
+    const existingColor = new THREE.Color();
+
     for (let j = cj - radius; j <= cj + radius; j++) {
         for (let i = ci - radius; i <= ci + radius; i++) {
-            // Check if the tile is within the terrain bounds
             if (i >= 0 && i < config.TILES_X && j >= 0 && j < config.TILES_Y) {
-                // Check if the tile is within the circular radius
                 const dist = Math.hypot(i - ci, j - cj);
                 if (dist <= radius) {
+                    // --- BLENDING LOGIC START ---
+                    // Calculate the blend strength based on distance from the brush center.
+                    // A power of 2 creates a nice quadratic ease-out falloff.
+                    const normalizedDist = dist / radius;
+                    const blendStrength = Math.max(0, 1.0 - normalizedDist * normalizedDist);
+
                     const vertexIndices = getTileVertexIndices(i, j);
                     vertexIndices.forEach(vi => {
-                        colorAttr.setXYZ(vi, color.r, color.g, color.b);
+                        // Read the current color of the vertex
+                        existingColor.fromBufferAttribute(colorAttr, vi);
+                        
+                        // Blend (lerp) the existing color with the new brush color
+                        existingColor.lerp(brushColor, blendStrength);
+
+                        // Write the new blended color back to the buffer
+                        colorAttr.setXYZ(vi, existingColor.r, existingColor.g, existingColor.b);
                     });
+                    // --- BLENDING LOGIC END ---
                 }
             }
         }
     }
 
-    colorAttr.needsUpdate = true; // IMPORTANT: Tell Three.js the colors have changed
+    colorAttr.needsUpdate = true;
 }
+// ===============================================================
 
 export function randomizeTerrain(appState) {
     if (!appState.terrainMesh) return;
