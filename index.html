@@ -16,17 +16,18 @@
   <link rel="apple-touch-icon" href="./assets/icons/icon-512.png">
   <link rel="stylesheet" href="./styles/app.css">
 
-  <!-- Import map (for your actual app code, not bootstrap) -->
+  <!-- Import map for the app (bootstrap doesn't use this).
+       Using CDN ensures 'three' always resolves on GitHub Pages. -->
   <script type="importmap">
   {
     "imports": {
-      "three": "./vendor/three.module.js",
-      "three/addons/": "./vendor/addons/"
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
     }
   }
   </script>
 
-  <!-- Bootstrap loader, self-contained -->
+  <!-- Bootstrap loader (gated start + error catcher) -->
   <script type="module" src="./bootstrap.js"></script>
 </head>
 <body>
