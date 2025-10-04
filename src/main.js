@@ -83,11 +83,12 @@ async function startApp() {
     });
 
     renderer.setAnimationLoop(() => {
-        // --- RE-ENABLE UNIFORM UPDATES FOR THE SHADER ---
+        // --- THIS BLOCK IS NOW REQUIRED AGAIN ---
         if (appState.terrainMaterial && appState.terrainMaterial.isShaderMaterial) {
             const uniforms = appState.terrainMaterial.uniforms;
-            // The shader needs the sun's direction for lighting
-            uniforms.uSunDirection.value.copy(appState.dirLight.position).normalize();
+            if (uniforms.uSunDirection) {
+                uniforms.uSunDirection.value.copy(appState.dirLight.position).normalize();
+            }
         }
 
         if (appState.camFollowEnabled && appState.ball?.mesh) {
