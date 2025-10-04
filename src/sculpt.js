@@ -14,7 +14,6 @@ function worldToTile(localX, localZ, config) {
     return { i, j };
 }
 
-// --- NEW, EFFICIENT SCULPTING LOGIC ---
 function applySculpt(hitPoint, appState, uiState) {
     const { terrainMesh, ball, config } = appState;
     if (!terrainMesh) return;
@@ -31,7 +30,11 @@ function applySculpt(hitPoint, appState, uiState) {
 
     // Find the vertex grid cell that the hit point is in
     const u = (localHit.x + width / 2) / width;
-    const v = (localHit.z + height / 2) / height;
+    
+    // --- THE FIX: Invert the Z-axis calculation ---
+    // The PlaneGeometry's V coordinate is flipped after being rotated. This corrects for that.
+    const v = 1.0 - ((localHit.z + height / 2) / height);
+
     const hitVertX = Math.round(u * widthSegments);
     const hitVertZ = Math.round(v * heightSegments);
 
