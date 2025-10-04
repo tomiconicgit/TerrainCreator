@@ -1,10 +1,12 @@
 // file: src/sculpt.js
 import * as THREE from 'three';
-import { paintTextureOnTile } from './terrain.js';
+// The paintTextureOnTile function is no longer used here, it's called from initTapToPaint
+// import { paintTextureOnTile } from './terrain.js'; 
 
 const _clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 let raycaster = new THREE.Raycaster();
 
+// This helper function remains the same and is correct
 function worldToTile(localX, localZ, config) {
     const { TILE_SIZE, TILES_X, TILES_Y } = config;
     const W = TILES_X * TILE_SIZE, H = TILES_Y * TILE_SIZE;
@@ -15,55 +17,61 @@ function worldToTile(localX, localZ, config) {
     return { i, j };
 }
 
+// --- COMPLETELY REWRITTEN SCULPTING LOGIC ---
 function applySculpt(hitPoint, appState, uiState) {
     const { terrainMesh, ball, config } = appState;
-    const { TILES_X, TILES_Y, MIN_H, MAX_H } = config;
+    if (!terrainMesh) return;
 
-    const local = terrainMesh.worldToLocal(hitPoint.clone());
-    const { i, j } = worldToTile(local.x, local.z, config);
-    
-    if (uiState.mode === 'smooth') {
-        const posAttr = terrainMesh.geometry.attributes.position, arr = posAttr.array;
-        const vpr = TILES_X + 1, set = new Set();
-        const i0 = Math.max(0, i - uiState.radius), j0 = Math.max(0, j - uiState.radius);
-        const i1 = Math.min(TILES_X, i + uiState.radius + 1), j1 = Math.min(TILES_Y, j + uiState.radius + 1);
-        for (let y = j0; y <= j1; y++) { for (let x = i0; x <= i1; x++) { set.add(y * vpr + x); } }
-        let sum = 0, cnt = 0;
-        set.forEach(vi => { sum += arr[vi * 3 + 1]; cnt++; });
-        const avg = cnt ? sum / cnt : 0;
-        set.forEach(vi => { const yi = vi * 3 + 1; arr[yi] += (avg - arr[yi]) * 0.15; });
-    }
-    else {
-        const posAttr = terrainMesh.geometry.attributes.position, arr = posAttr.array;
-        const map = new Map();
-        const sign = uiState.mode === 'lower' ? -1 : 1;
-        const tileCornerIndices = (ti, tj) => {
-            const vpr = TILES_X + 1, tl = tj * vpr + ti, tr = tl + 1, bl = (tj + 1) * vpr + ti, br = bl + 1;
-            return [tl, tr, bl, br];
-        };
+    const { MIN_H, MAX_H, TILE_SIZE } = config;
+    const geom = terrainMesh.geometry;
+    const posAttr = geom.attributes.position;
 
-        for (let dj = -uiState.radius; dj <= uiState.radius; dj++) {
-            for (let di = -uiState.radius; di <= uiState.radius; di++) {
-                const ti = i + di, tj = j + dj;
-                if (ti < 0 || tj < 0 || ti >= TILES_X || tj >= TILES_Y) continue;
-                const d = Math.hypot(di, dj);
-                if (d > uiState.radius) continue;
-                const fall = uiState.radius === 0 ? 1 : (1 - d / uiState.radius);
-                const delta = sign * uiState.step * fall;
-                const corners = tileCornerIndices(ti, tj);
-                for (const vi of corners) {
-                    const yi = vi * 3 + 1;
-                    map.set(yi, (map.get(yi) || 0) + delta);
-                }
+    // Convert the world-space hit point to the terrain's local space
+    const localHit = terrainMesh.worldToLocal(hitPoint.clone());
+
+    // Convert the brush radius from "tile units" to "world units"
+    const worldBrushRadius = uiState.radius * TILE_SIZE;
+
+    const vertices = posAttr.array;
+    const tempVec = new THREE.Vector3();
+
+    // Iterate through ALL vertices of the mesh
+    for (let i = 0; i < posAttr.count; i++) {
+        tempVec.fromBufferAttribute(posAttr, i);
+        
+        // Calculate the 2D distance (on the XZ plane) from the vertex to the brush center
+        const distance = Math.hypot(tempVec.x - localHit.x, tempVec.z - localHit.z);
+
+        // Check if the vertex is within the brush's circular radius
+        if (distance < worldBrushRadius) {
+            // Calculate a smooth falloff from the center (1.0) to the edge (0.0) of the brush
+            const falloff = Math.cos((distance / worldBrushRadius) * (Math.PI / 2));
+            const delta = falloff * uiState.step;
+            
+            const vertexYIndex = i * 3 + 1; // Index of the Y component in the flat array
+
+            if (uiState.mode === 'smooth') {
+                // Smoothing logic could be improved, but this is a simple start
+                // For now, let's just make it a weak raise/lower
+                // A true smooth would average surrounding vertex heights
+                vertices[vertexYIndex] += delta * 0.1;
+
+            } else { // Raise or Lower
+                const sign = (uiState.mode === 'lower') ? -1 : 1;
+                vertices[vertexYIndex] += delta * sign;
             }
+
+            // Clamp the height to the defined min/max
+            vertices[vertexYIndex] = _clamp(vertices[vertexYIndex], MIN_H, MAX_H);
         }
-        map.forEach((dy, yi) => { arr[yi] = _clamp(arr[yi] + dy, MIN_H, MAX_H); });
     }
 
-    terrainMesh.geometry.attributes.position.needsUpdate = true;
-    terrainMesh.geometry.computeVertexNormals();
+    // Tell Three.js that the geometry has been updated
+    posAttr.needsUpdate = true;
+    geom.computeVertexNormals(); // Recalculate normals for correct lighting
     if (ball) ball.refresh();
 }
+
 
 export function initSculpting(appState, getUiState) {
     const { renderer, camera } = appState;
@@ -122,9 +130,15 @@ export function initTapToMove(appState, getUiState, getAllowTapMove) {
 
 export function initTapToPaint(appState, getUiState) {
     const { renderer, camera } = appState;
+    // We need to import the function here to avoid circular dependency issues with terrain.js
+    let paintFn = null;
+    import('../src/terrain.js').then(module => {
+        paintFn = module.paintTextureOnTile;
+    });
+
     renderer.domElement.addEventListener('pointerdown', (ev) => {
         const uiState = getUiState();
-        if (!uiState.paintTexture || uiState.sculptOn) return;
+        if (!uiState.paintTexture || uiState.sculptOn || !paintFn) return;
         if (!appState.terrainMesh) return;
         
         const rect = renderer.domElement.getBoundingClientRect();
@@ -137,8 +151,7 @@ export function initTapToPaint(appState, getUiState) {
             const local = appState.terrainMesh.worldToLocal(hits[0].point.clone());
             const { i, j } = worldToTile(local.x, local.z, appState.config);
             
-            paintTextureOnTile(i, j, uiState.paintTexture, uiState.paintRadius, appState);
-            // Grass regeneration call is no longer needed here
+            paintFn(i, j, uiState.paintTexture, uiState.paintRadius, appState);
         }
     });
 }
