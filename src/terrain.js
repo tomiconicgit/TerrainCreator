@@ -3,9 +3,10 @@ import * as THREE from 'three';
 import { dispose } from './utils.js';
 import BallMarker from './character.js';
 
-let edgesHelper = null;
+// We now need to manage two grid helpers
+let subdivisionGridHelper = null;
+let mainGridHelper = null;
 
-// --- UPDATED: Subdivisions set to 4 ---
 const SUBDIVISIONS = 4;
 
 const vertexShader = `
@@ -35,23 +36,59 @@ const fragmentShader = `
   }
 `;
 
-function rebuildEdges(terrainGroup, terrainMesh) {
+// --- UPDATED: This function now builds both red and blue grid lines ---
+function rebuildGridLines(terrainGroup, terrainMesh, config) {
   if (!terrainMesh) return;
-  if (edgesHelper) {
-    if (edgesHelper.geometry) edgesHelper.geometry.dispose();
-    if (edgesHelper.material) edgesHelper.material.dispose();
-    if (terrainGroup) terrainGroup.remove(edgesHelper);
+
+  // --- 1. Blue Subdivision Lines (Fine Grid) ---
+  if (subdivisionGridHelper) {
+    dispose(subdivisionGridHelper);
+    terrainGroup.remove(subdivisionGridHelper);
   }
-  const edgesGeom = new THREE.EdgesGeometry(terrainMesh.geometry, 1);
-  const edgesMat = new THREE.LineBasicMaterial({ color: 0x2a9df4, transparent: true, opacity: 0.55 });
-  edgesHelper = new THREE.LineSegments(edgesGeom, edgesMat);
-  edgesHelper.renderOrder = 1;
-  terrainGroup.add(edgesHelper);
+  const blueGeom = new THREE.EdgesGeometry(terrainMesh.geometry, 15); // The '15' helps hide interior diagonal lines
+  const blueMat = new THREE.LineBasicMaterial({ color: 0x2a9df4, transparent: true, opacity: 0.55 });
+  subdivisionGridHelper = new THREE.LineSegments(blueGeom, blueMat);
+  subdivisionGridHelper.renderOrder = 1;
+  terrainGroup.add(subdivisionGridHelper);
+
+
+  // --- 2. Red Main Tile Lines (Coarse Grid) ---
+  if (mainGridHelper) {
+    dispose(mainGridHelper);
+    terrainGroup.remove(mainGridHelper);
+  }
+  
+  // Create a temporary low-resolution plane matching the main tile grid
+  const { TILES_X, TILES_Y } = config;
+  const { W, H } = terrainMesh.geometry.parameters;
+  const mainGridGeom = new THREE.PlaneGeometry(W, H, TILES_X, TILES_Y);
+  
+  // Copy height data from the high-res mesh to our low-res grid
+  const highResPos = terrainMesh.geometry.attributes.position;
+  const lowResPos = mainGridGeom.attributes.position;
+  const totalVertsX = TILES_X * SUBDIVISIONS + 1;
+
+  for (let j = 0; j <= TILES_Y; j++) {
+    for (let i = 0; i <= TILES_X; i++) {
+      const lowResIndex = j * (TILES_X + 1) + i;
+      const highResIndex = (j * SUBDIVISIONS) * totalVertsX + (i * SUBDIVISIONS);
+      
+      const y = highResPos.getY(highResIndex);
+      lowResPos.setY(lowResIndex, y);
+    }
+  }
+
+  const redGeom = new THREE.EdgesGeometry(mainGridGeom);
+  const redMat = new THREE.LineBasicMaterial({ color: 0xff3333, transparent: true, opacity: 0.8 });
+  mainGridHelper = new THREE.LineSegments(redGeom, redMat);
+  mainGridHelper.renderOrder = 2; // Render red lines on top of blue lines
+  terrainGroup.add(mainGridHelper);
 }
 
+
 export function createTerrain(appState) {
-    const { scene } = appState;
-    const { TILES_X, TILES_Y, TILE_SIZE, CHAR_HEIGHT_UNITS } = appState.config;
+    const { scene, config } = appState;
+    const { TILES_X, TILES_Y, TILE_SIZE, CHAR_HEIGHT_UNITS } = config;
     const W = TILES_X * TILE_SIZE;
     const H = TILES_Y * TILE_SIZE;
 
@@ -115,7 +152,7 @@ export function createTerrain(appState) {
     appState.terrainGroup = terrainGroup;
     appState.terrainMesh = mesh;
 
-    rebuildEdges(terrainGroup, mesh);
+    rebuildGridLines(terrainGroup, mesh, config);
 
     const ballRadius = Math.max(6, Math.min(TILE_SIZE * 0.45, CHAR_HEIGHT_UNITS * 0.35));
     if (appState.ball) appState.ball.dispose();
@@ -128,7 +165,7 @@ export function createTerrain(appState) {
       tileJ: Math.floor(TILES_Y / 3),
       radius: ballRadius,
       color: 0xff2b2b,
-      config: appState.config, 
+      config: config, 
     });
 }
 
@@ -153,7 +190,9 @@ export function paintTextureOnTile(ci, cj, texture, radius, appState) {
                             const vertY = j * actualSubdivisions + subJ;
                             const vertIndex = vertY * totalVertsX + vertX;
                             
-                            colorAttr.setX(vertIndex, paintValue);
+                            if (colorAttr && vertIndex < colorAttr.count) {
+                                colorAttr.setX(vertIndex, paintValue);
+                            }
                         }
                     }
                 }
@@ -171,13 +210,13 @@ export function randomizeTerrain(appState) {
     }
     appState.terrainMesh.geometry.attributes.position.needsUpdate = true;
     appState.terrainMesh.geometry.computeVertexNormals();
-    rebuildEdges(appState.terrainGroup, appState.terrainMesh);
+    rebuildGridLines(appState.terrainGroup, appState.terrainMesh, appState.config);
     if (appState.ball) appState.ball.refresh();
 }
 
 export function applyHeightmapTemplate(name, appState) {
     if (!appState.terrainMesh) return;
-    const { terrainMesh, ball } = appState;
+    const { terrainMesh, ball, config } = appState;
     
     const { widthSegments, heightSegments } = terrainMesh.geometry.parameters;
 
@@ -206,7 +245,7 @@ export function applyHeightmapTemplate(name, appState) {
     }
     terrainMesh.geometry.attributes.position.needsUpdate = true;
     terrainMesh.geometry.computeVertexNormals();
-    rebuildEdges(appState.terrainGroup, appState.terrainMesh);
+    rebuildGridLines(appState.terrainGroup, appState.terrainMesh, config);
     if (ball) ball.refresh();
 }
 
