@@ -60,8 +60,8 @@ function rebuildGridLines(terrainGroup, terrainMesh, config) {
   
   // Create a temporary low-resolution plane matching the main tile grid
   const { TILES_X, TILES_Y } = config;
-  const { W, H } = terrainMesh.geometry.parameters;
-  const mainGridGeom = new THREE.PlaneGeometry(W, H, TILES_X, TILES_Y);
+  const { width, height } = terrainMesh.geometry.parameters;
+  const mainGridGeom = new THREE.PlaneGeometry(width, height, TILES_X, TILES_Y);
   
   // Copy height data from the high-res mesh to our low-res grid
   const highResPos = terrainMesh.geometry.attributes.position;
@@ -74,7 +74,9 @@ function rebuildGridLines(terrainGroup, terrainMesh, config) {
       const highResIndex = (j * SUBDIVISIONS) * totalVertsX + (i * SUBDIVISIONS);
       
       const y = highResPos.getY(highResIndex);
-      lowResPos.setY(lowResIndex, y);
+      // --- THE FIX: LIFT THE RED GRID SLIGHTLY ---
+      // Adding a small offset to prevent z-fighting with the blue grid.
+      lowResPos.setY(lowResIndex, y + 0.1); 
     }
   }
 
