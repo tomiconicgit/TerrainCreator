@@ -4,7 +4,6 @@ import { dispose } from './utils.js';
 import BallMarker from './character.js';
 
 let edgesHelper = null;
-const SUBDIVISIONS = 4;
 
 // Simple, no-image material (vertex colors enabled)
 function makeSimpleMaterial() {
@@ -29,12 +28,12 @@ function setAllVertexColors(geom, colorHex = 0xD2B48C /* sandy tan */) {
   geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 }
 
-function rebuildEdges(terrainGroup, terrainMesh) {
-  if (!terrainMesh) return;
+export function rebuildEdges(terrainGroup, terrainMesh) {
+  if (!terrainMesh || !terrainGroup) return;
   if (edgesHelper) {
-    if (edgesHelper.geometry) edgesHelper.geometry.dispose();
-    if (edgesHelper.material) edgesHelper.material.dispose();
-    if (terrainGroup) terrainGroup.remove(edgesHelper);
+    try { edgesHelper.geometry?.dispose(); } catch {}
+    try { edgesHelper.material?.dispose(); } catch {}
+    try { terrainGroup.remove(edgesHelper); } catch {}
   }
   const edgesGeom = new THREE.EdgesGeometry(terrainMesh.geometry, 1);
   const edgesMat = new THREE.LineBasicMaterial({ color: 0x2a9df4, transparent: true, opacity: 0.55 });
@@ -46,6 +45,9 @@ function rebuildEdges(terrainGroup, terrainMesh) {
 export function createTerrain(appState) {
   const { scene } = appState;
   const { TILES_X, TILES_Y, TILE_SIZE, CHAR_HEIGHT_UNITS } = appState.config;
+  // Ensure SUBDIV present (logical big tile -> subgrid)
+  const SUBDIV = appState.config.SUBDIV = appState.config.SUBDIV || 4;
+
   const W = TILES_X * TILE_SIZE;
   const H = TILES_Y * TILE_SIZE;
 
@@ -53,8 +55,8 @@ export function createTerrain(appState) {
   dispose(appState.treesGroup);
   appState.treesGroup = null;
 
-  const widthSegments = TILES_X * SUBDIVISIONS;
-  const heightSegments = TILES_Y * SUBDIVISIONS;
+  const widthSegments = TILES_X * SUBDIV;
+  const heightSegments = TILES_Y * SUBDIV;
   const geom = new THREE.PlaneGeometry(W, H, widthSegments, heightSegments);
   geom.rotateX(-Math.PI / 2);
 
@@ -83,12 +85,12 @@ export function createTerrain(appState) {
     three: THREE,
     scene: scene,
     terrainMesh: mesh,
-    tileI: Math.floor(TILES_X / 3),
-    tileJ: Math.floor(TILES_Y / 3),
     radius: ballRadius,
     color: 0xff2b2b,
-    config: appState.config,
   });
+
+  // Start the marker on a visible main tile (not sub-tile)
+  appState.ball.placeOnMainTile(Math.floor(TILES_X / 3), Math.floor(TILES_Y / 3), SUBDIV);
 }
 
 export function randomizeTerrain(appState) {
@@ -138,7 +140,7 @@ export function applyHeightmapTemplate(name, appState) {
   if (ball) ball.refresh();
 }
 
-// --- noise helpers (unchanged) ---
+// --- noise helpers (unchanged below) ---
 const _clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const _smooth = (t) => t * t * (3 - 2 * t);
 const _perm = new Uint8Array(512);
