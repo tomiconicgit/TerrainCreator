@@ -2,7 +2,6 @@
 import { createTerrain, randomizeTerrain, applyHeightmapTemplate } from './terrain.js';
 import { populateTrees } from './trees.js';
 import { updateCameraBounds } from './camera.js';
-import { updateSky } from './sky.js';
 
 let uiState = {
   sculptOn: false,
@@ -34,7 +33,6 @@ export function initUI(appState) {
     appState.config.TILES_Y = Math.max(2, Math.min(256, parseInt(tilesY.value || '30', 10)));
     createTerrain(appState);
     updateCameraBounds(appState);
-    updateSky(appState);
   });
 
   document.getElementById('randomize').addEventListener('click', () => randomizeTerrain(appState));
