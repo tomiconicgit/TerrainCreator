@@ -39,60 +39,56 @@
         <button class="tab" data-tab="settings">Settings</button>
       </div>
 
+      <!-- TERRAIN TAB -->
       <div class="tabcontent on" id="tab-terrain">
-        <div class="section">
-
-          <!-- Row 1: Terrain Size (Tiles) + inputs + Generate + Random jitter -->
-          <div class="form-row form-row--grid">
-            <label>Terrain Size (Tiles)</label>
-            <div class="input-pair">
-              <input id="tilesX" type="number" min="2" max="256" step="1" value="30" inputmode="numeric">
-              <span class="times">x</span>
-              <input id="tilesY" type="number" min="2" max="256" step="1" value="30" inputmode="numeric">
-            </div>
-            <button id="genTerrain" class="primary">Generate</button>
-            <button id="randomize">Random jitter</button>
+        <!-- Row 1: Terrain Size + Generate/Jitter (desktop single row, mobile wraps) -->
+        <div class="form-row">
+          <label>Terrain Size ( Tiles )</label>
+          <div class="input-pair">
+            <input id="tilesX" type="number" min="2" max="256" step="1" value="30" inputmode="numeric">
+            <span class="times">x</span>
+            <input id="tilesY" type="number" min="2" max="256" step="1" value="30" inputmode="numeric">
           </div>
+          <button id="genTerrain" class="primary">Generate</button>
+          <button id="randomize">Random jitter</button>
+        </div>
 
-          <!-- Row 2: Grid outlines (switch) + Heightmap template + Apply -->
-          <div class="form-row form-row--grid">
-            <div class="form-cell">
-              <label for="gridToggle">Grid outlines</label>
-              <label class="switch">
-                <input id="gridToggle" type="checkbox" checked>
-                <span class="slider"></span>
-              </label>
-            </div>
+        <!-- Row 2: Grid Outlines (toggle) + Template + Apply -->
+        <div class="form-row">
+          <label for="gridToggle">Grid outlines</label>
+          <label class="switch">
+            <input id="gridToggle" type="checkbox" checked>
+            <span class="slider"></span>
+          </label>
 
-            <label for="template" class="sr-only">Heightmap template</label>
-            <select id="template">
-              <option value="Flat">Flat</option>
-              <option value="DiamondSquare">DiamondSquare</option>
-              <option value="Perlin" selected>Perlin</option>
-              <option value="Simplex">Simplex</option>
-              <option value="Fault">Fault</option>
-              <option value="Cosine">Cosine</option>
-              <option value="Value">Value</option>
-              <option value="Worley">Worley</option>
-            </select>
-            <button id="applyTemplate">Apply</button>
+          <label for="template" class="spacer-label">Heightmap template</label>
+          <select id="template">
+            <option value="Flat">Flat</option>
+            <option value="DiamondSquare">DiamondSquare</option>
+            <option value="Perlin" selected>Perlin</option>
+            <option value="Simplex">Simplex</option>
+            <option value="Fault">Fault</option>
+            <option value="Cosine">Cosine</option>
+            <option value="Value">Value</option>
+            <option value="Worley">Worley</option>
+          </select>
+          <button id="applyTemplate">Apply</button>
+        </div>
+
+        <!-- Row 3: Trees -->
+        <div class="form-row">
+          <label>Tree Population ( Scatter )</label>
+          <div class="input-pair">
+            <input id="treeCount" type="number" min="0" max="100000" step="1" value="200" inputmode="numeric">
           </div>
-
-          <!-- Row 3: Tree Population ( Scatter ) + input + Apply -->
-          <div class="form-row form-row--grid">
-            <label for="treeCount">Tree Population ( Scatter )</label>
-            <div class="input-pair">
-              <input id="treeCount" type="number" min="0" max="100000" step="1" value="200" inputmode="numeric">
-            </div>
-            <button id="applyTrees">Apply</button>
-          </div>
-
+          <button id="applyTrees">Populate</button>
         </div>
       </div>
 
+      <!-- SCULPT TAB -->
       <div class="tabcontent" id="tab-sculpt">
         <div class="section">
-          <div class="row">
+          <div class="form-row">
             <label for="sculptOn">Enable sculpt</label>
             <label class="switch">
               <input id="sculptOn" type="checkbox">
@@ -100,7 +96,7 @@
             </label>
           </div>
 
-          <div class="row row-split">
+          <div class="form-row">
             <label>Height step</label>
             <div class="spinner">
               <button id="stepDown" aria-label="step down">-</button>
@@ -109,7 +105,7 @@
             </div>
           </div>
 
-          <div class="row row-split">
+          <div class="form-row">
             <label>Radius (tiles)</label>
             <div class="spinner">
               <button id="radiusDown" aria-label="radius down">-</button>
@@ -118,7 +114,7 @@
             </div>
           </div>
 
-          <div class="grid">
+          <div class="form-row">
             <button id="modeRaise" class="toggle on">Raise</button>
             <button id="modeLower" class="toggle">Lower</button>
             <button id="modeSmooth" class="toggle">Smooth</button>
