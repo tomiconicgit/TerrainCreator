@@ -12,7 +12,7 @@ function worldToTile(localX, localZ, config) {
   let i = Math.floor(u * TILES_X), j = Math.floor(v * TILES_Y);
   i = _clamp(i, 0, TILES_X - 1);
   j = _clamp(j, 0, TILES_Y - 1);
-  return { i, j };
+  return { i, j }; // main tile indices
 }
 
 function applySculpt(hitPoint, appState, uiState) {
@@ -29,6 +29,7 @@ function applySculpt(hitPoint, appState, uiState) {
 
   const { width, height, widthSegments, heightSegments } = geom.parameters;
 
+  // mapping to vertex grid
   const u = (localHit.x + width / 2) / width;
   const v = (localHit.z + height / 2) / height;
   const hitVertX = Math.round(u * widthSegments);
@@ -60,26 +61,25 @@ function applySculpt(hitPoint, appState, uiState) {
         }
       }
     }
-    if (heightsInBrush.length === 0) return;
-    const averageHeight = totalHeight / heightsInBrush.length;
+    if (!heightsInBrush.length) return;
+    const avg = totalHeight / heightsInBrush.length;
     for (const vtx of heightsInBrush) {
-      const vertexYIndex = vtx.index * 3 + 1;
-      const currentY = vtx.height;
-      vertices[vertexYIndex] += (averageHeight - currentY) * 0.1;
+      const yi = vtx.index * 3 + 1;
+      vertices[yi] += (avg - vtx.height) * 0.1;
     }
   } else {
     const sign = (uiState.mode === 'lower') ? -1 : 1;
     for (let z = startZ; z <= endZ; z++) {
       for (let x = startX; x <= endX; x++) {
-        const vertIndex = z * vertsPerRow + x;
-        const vertexYIndex = vertIndex * 3 + 1;
+        const idx = z * vertsPerRow + x;
+        const yi = idx * 3 + 1;
         const dx = (x - hitVertX) * vertexCellWidth;
         const dz = (z - hitVertZ) * vertexCellWidth;
         const distance = Math.hypot(dx, dz);
         if (distance < worldBrushRadius) {
           const falloff = Math.cos((distance / worldBrushRadius) * (Math.PI / 2));
           const delta = falloff * uiState.step;
-          vertices[vertexYIndex] = _clamp(vertices[vertexYIndex] + delta * sign, MIN_H, MAX_H);
+          vertices[yi] = _clamp(vertices[yi] + delta * sign, MIN_H, MAX_H);
         }
       }
     }
@@ -88,10 +88,10 @@ function applySculpt(hitPoint, appState, uiState) {
   posAttr.needsUpdate = true;
   geom.computeVertexNormals();
 
-  // Make grid follow the updated terrain
+  // keep red grid glued to terrain
   rebuildGridAfterGeometry(appState);
 
-  if (ball) ball.refresh();
+  ball?.refresh();
 }
 
 export function initSculpting(appState, getUiState) {
@@ -110,8 +110,7 @@ export function initSculpting(appState, getUiState) {
 
     const targets = [];
     if (appState.terrainMesh) targets.push(appState.terrainMesh);
-    // allow sculpting when clicking on the grid overlay too
-    if (appState.gridLines) targets.push(appState.gridLines);
+    if (appState.gridLines)   targets.push(appState.gridLines); // allow sculpt via grid clicks
 
     const hits = raycaster.intersectObjects(targets, false);
     if (hits.length > 0) applySculpt(hits[0].point, appState, uiState);
@@ -119,7 +118,7 @@ export function initSculpting(appState, getUiState) {
 
   renderer.domElement.addEventListener('pointerdown', (ev) => {
     if (!getUiState().sculptOn) return;
-    try { renderer.domElement.setPointerCapture(ev.pointerId); } catch(_) {}
+    try { renderer.domElement.setPointerCapture(ev.pointerId); } catch (_) {}
     dragging = true;
     cast(ev);
   });
@@ -141,21 +140,17 @@ export function initTapToMove(appState, getUiState, getAllowTapMove) {
     const y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera({ x, y }, camera);
 
-    // Intersect both the terrain and the red grid lines
     const targets = [];
     if (appState.terrainMesh) targets.push(appState.terrainMesh);
-    if (appState.gridLines)  targets.push(appState.gridLines);
+    if (appState.gridLines)   targets.push(appState.gridLines);
 
     const hits = raycaster.intersectObjects(targets, false);
     if (hits.length > 0) {
-      const worldPoint = hits[0].point.clone();
-      // convert world to LOCAL of the terrain mesh, even if we hit the grid
-      const local = appState.terrainMesh.worldToLocal(worldPoint);
+      const world = hits[0].point.clone();
+      const local = appState.terrainMesh.worldToLocal(world);
       const { i, j } = worldToTile(local.x, local.z, appState.config);
       appState.ball.placeOnTile(i, j);
-      if (appState.camFollowEnabled) {
-        appState.controls.lookAt(appState.ball.mesh.position);
-      }
+      if (appState.camFollowEnabled) appState.controls.lookAt(appState.ball.mesh.position);
     }
   }, { passive: true });
 }
