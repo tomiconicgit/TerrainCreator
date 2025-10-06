@@ -11,32 +11,29 @@ import initNavLock from './navlock.js';
 async function startApp() {
   console.log('THREE revision:', THREE.REVISION);
 
-  const appState = {
-    renderer: null,
-    scene: null,
-    camera: null,
-    controls: null,
-    dirLight: null,
-    lightTarget: null,
-    terrainGroup: null,
-    terrainMesh: null,
-    terrainMaterial: null,
-    treesGroup: null,
-    ball: null,
-    camFollowEnabled: true,
-    config: {
-      TILES_X: 30, TILES_Y: 30, TILE_SIZE: 32,
-      MIN_H: -200, MAX_H: 300,
-      CHAR_HEIGHT_UNITS: 32 * 1.0,
-      TREE_MIN_RATIO: 10 / 6,
-      TREE_MAX_RATIO: 15 / 6,
-    }
-  };
+  const appState = { /* ... unchanged ... */ };
 
   const canvas = document.getElementById('c');
+  const sceneHost = document.getElementById('sceneHost'); // <-- NEW
+
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  renderer.setSize(window.innerWidth, window.innerHeight);
+
+  // SIZE TO HOST, not full window  <-- CHANGED
+  function sizeRendererToHost() {
+    const w = sceneHost.clientWidth || window.innerWidth;
+    const h = sceneHost.clientHeight || window.innerHeight;
+    renderer.setSize(w, h, false);
+    appState.camera.aspect = w / h;
+    appState.camera.updateProjectionMatrix();
+  }
+
+  // temporarily create camera before sizing
+  const { camera, controls } = initCamera(renderer);
+  appState.camera = camera;
+  appState.controls = controls;
+
+  sizeRendererToHost(); // initial sizing
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.shadowMap.enabled = true;
@@ -46,15 +43,10 @@ async function startApp() {
   scene.background = null;
   appState.scene = scene;
 
-  const { camera, controls } = initCamera(renderer);
-  appState.camera = camera;
-  appState.controls = controls;
-
   const { dirLight, lightTarget } = initLighting(scene);
   appState.dirLight = dirLight;
   appState.lightTarget = lightTarget;
 
-  // No sky: build terrain and go
   createTerrain(appState);
   updateCameraBounds(appState);
 
@@ -70,10 +62,9 @@ async function startApp() {
     });
   } catch (_) {}
 
+  // Resize on window changes — size to SCENE HOST  <-- CHANGED
   window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
+    sizeRendererToHost();
     updateCameraBounds(appState);
   });
 
@@ -86,15 +77,11 @@ async function startApp() {
   });
 }
 
-// ---- Error Handling & Boot ----
+// ---- Error Handling & Boot ---- (unchanged)
 window.addEventListener('error', (e) => showErrorOverlay('Window error', e.error || e));
 window.addEventListener('unhandledrejection', (e) => showErrorOverlay('Unhandled promise rejection', e.reason));
 
 (async () => {
-  try {
-    startApp();
-  } catch (e) {
-    showErrorOverlay('Failed to start application.', e);
-    throw e;
-  }
+  try { startApp(); }
+  catch (e) { showErrorOverlay('Failed to start application.', e); throw e; }
 })();
