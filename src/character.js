@@ -1,8 +1,8 @@
 // file: src/character.js
-// Red ball that snaps to the center of a main 1×1 tile and samples the mesh height.
-// Works regardless of geometry SUBDIVISIONS.
+// Cube marker that snaps to the center of a main 1×1 tile,
+// places its bottom face flush on the terrain, and aligns its up-axis to the surface normal.
 
-export default class BallMarker {
+export default class CubeMarker {
   constructor({
     three,
     scene,
@@ -10,25 +10,29 @@ export default class BallMarker {
     config,            // <- pass appState.config
     tileI = 0,
     tileJ = 0,
-    radius = 10,
-    color  = 0xff2b2b,
-    hover  = 2,
+    size  = 18,        // cube edge length in world units
+    color = 0xff2b2b,
+    hover = 0,         // optional extra lift (kept for tweakability)
   }) {
     if (!three || !scene || !terrainMesh || !config) {
-      throw new Error('[BallMarker] three, scene, terrainMesh, and config are required.');
+      throw new Error('[CubeMarker] three, scene, terrainMesh, and config are required.');
     }
     this.THREE = three;
     this.scene = scene;
     this.terrainMesh = terrainMesh;
     this.config = config;
+
     this.tileI = tileI | 0;
     this.tileJ = tileJ | 0;
+    this.size  = size;
+    this.half  = size * 0.5;
     this.hover = hover;
 
-    const geom = new this.THREE.SphereGeometry(radius, 24, 18);
+    const geom = new this.THREE.BoxGeometry(size, size, size);
     const mat  = new this.THREE.MeshStandardMaterial({ color, metalness: 0.1, roughness: 0.35 });
     this.mesh  = new this.THREE.Mesh(geom, mat);
     this.mesh.castShadow = true;
+    this.mesh.name = 'CubeMarker';
     this.scene.add(this.mesh);
 
     this._snapToCurrentTile();
@@ -62,14 +66,14 @@ export default class BallMarker {
     return new this.THREE.Vector3(x, 0, z);
   }
 
+  // Bilinear height (y) at local x/z
   _sampleHeightLocal(x, z) {
-    // Bilinear interpolation on CURRENT terrain geometry (no assumptions)
     const g = this.terrainMesh.geometry;
     const pos = g.attributes.position.array;
     const { width, height, widthSegments, heightSegments } = g.parameters;
 
-    const u = (x + width  / 2) / width;   // 0..1 across local X
-    const v = (z + height / 2) / height;  // 0..1 across local Z
+    const u = (x + width  / 2) / width;
+    const v = (z + height / 2) / height;
 
     const gx = u * widthSegments;
     const gz = v * heightSegments;
@@ -92,10 +96,45 @@ export default class BallMarker {
     return y0 * (1 - fz) + y1 * fz;
   }
 
+  // Estimate local-space surface normal at local x/z using central differences
+  _sampleNormalLocal(x, z) {
+    const { TILE_SIZE } = this.config;
+    const eps = Math.max(0.5, TILE_SIZE * 0.05);
+
+    const yC = this._sampleHeightLocal(x, z);
+    const yX = this._sampleHeightLocal(x + eps, z);
+    const yZ = this._sampleHeightLocal(x, z + eps);
+
+    // Local tangent vectors along +X and +Z
+    const vx = new this.THREE.Vector3(eps, yX - yC, 0);
+    const vz = new this.THREE.Vector3(0,   yZ - yC, eps);
+
+    // Local normal = vx × vz (order matters to keep up-facing)
+    const n = vz.cross(vx).normalize();
+    return n; // local-space normal
+  }
+
   _snapToCurrentTile() {
-    const c = this._tileCenterLocal(this.tileI, this.tileJ);
-    c.y = this._sampleHeightLocal(c.x, c.z) + this.hover;
-    const world = this.terrainMesh.localToWorld(c.clone());
-    this.mesh.position.copy(world);
+    const THREE = this.THREE;
+    const cLocal = this._tileCenterLocal(this.tileI, this.tileJ);
+
+    // Height & local normal at tile center
+    const y = this._sampleHeightLocal(cLocal.x, cLocal.z);
+    const nLocal = this._sampleNormalLocal(cLocal.x, cLocal.z);
+
+    // Convert to world space
+    const worldPoint = this.terrainMesh.localToWorld(new THREE.Vector3(cLocal.x, y + this.hover, cLocal.z));
+
+    // Transform local normal to world normal
+    const normalMatrix = new THREE.Matrix3().getNormalMatrix(this.terrainMesh.matrixWorld);
+    const nWorld = nLocal.clone().applyMatrix3(normalMatrix).normalize();
+
+    // Orient cube so its up-axis (0,1,0) aligns with the surface normal
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), nWorld);
+    this.mesh.quaternion.copy(q);
+
+    // Place cube so its BOTTOM face touches the surface (offset half size along normal)
+    const offset = nWorld.clone().multiplyScalar(this.half);
+    this.mesh.position.copy(worldPoint.add(offset));
   }
 }
