@@ -3,9 +3,8 @@ import * as THREE from 'three';
 import { dispose } from './utils.js';
 import BallMarker from './character.js';
 
-// dual outline helpers
-let edgesHelperSmall = null; // fine (geometry) grid
-let edgesHelperMain  = null; // big tile grid
+// main grid helper only (no small sub-grid)
+let edgesHelperMain  = null;
 const SUBDIVISIONS = 4;
 
 // Simple, no-image material (vertex colors enabled)
@@ -29,21 +28,6 @@ function setAllVertexColors(geom, colorHex = 0xD2B48C /* sandy tan */) {
     colors[i * 3 + 2] = col.b;
   }
   geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-}
-
-// Build small grid (EdgesGeometry over terrain mesh)
-function rebuildSmallEdges(terrainGroup, terrainMesh) {
-  if (!terrainMesh || !terrainGroup) return;
-  if (edgesHelperSmall) {
-    try { edgesHelperSmall.geometry?.dispose(); } catch {}
-    try { edgesHelperSmall.material?.dispose(); } catch {}
-    try { terrainGroup.remove(edgesHelperSmall); } catch {}
-  }
-  const edgesGeom = new THREE.EdgesGeometry(terrainMesh.geometry, 1);
-  const edgesMat = new THREE.LineBasicMaterial({ color: 0x2a9df4, transparent: true, opacity: 0.55 });
-  edgesHelperSmall = new THREE.LineSegments(edgesGeom, edgesMat);
-  edgesHelperSmall.renderOrder = 1;
-  terrainGroup.add(edgesHelperSmall);
 }
 
 // Build main (big tile) grid as a separate line set
@@ -81,19 +65,17 @@ function rebuildMainGrid(terrainGroup, config) {
   terrainGroup.add(edgesHelperMain);
 }
 
-// Public: toggle visibility combinations
-export function setGridMode(appState, mode /* 'off'|'small'|'main'|'both' */) {
-  appState.gridMode = mode;
-  if (edgesHelperSmall) edgesHelperSmall.visible = (mode === 'small' || mode === 'both');
-  if (edgesHelperMain)  edgesHelperMain.visible  = (mode === 'main'  || mode === 'both');
+// Public: toggle visibility for the main grid
+export function setMainGridVisible(appState, visible) {
+  if (edgesHelperMain) edgesHelperMain.visible = !!visible;
+  appState.gridMainVisible = !!visible;
 }
 
-// Rebuild both helpers and reapply current mode
-function rebuildGrids(appState) {
-  const { terrainGroup, terrainMesh, config } = appState;
-  rebuildSmallEdges(terrainGroup, terrainMesh);
+// Rebuild the main grid and reapply current visibility
+function rebuildGrid(appState) {
+  const { terrainGroup, config } = appState;
   rebuildMainGrid(terrainGroup, config);
-  setGridMode(appState, appState.gridMode || 'small');
+  setMainGridVisible(appState, appState.gridMainVisible ?? true);
 }
 
 export function createTerrain(appState) {
@@ -127,9 +109,9 @@ export function createTerrain(appState) {
   appState.terrainMesh = mesh;
   appState.terrainMaterial = mat;
 
-  // Build both outline helpers and apply current setting
-  if (!appState.gridMode) appState.gridMode = 'small';
-  rebuildGrids(appState);
+  // Build main outline and apply current setting
+  if (appState.gridMainVisible == null) appState.gridMainVisible = true;
+  rebuildGrid(appState);
 
   const ballRadius = Math.max(6, Math.min(TILE_SIZE * 0.45, CHAR_HEIGHT_UNITS * 0.35));
   if (appState.ball) appState.ball.dispose();
@@ -154,7 +136,7 @@ export function randomizeTerrain(appState) {
   }
   appState.terrainMesh.geometry.attributes.position.needsUpdate = true;
   appState.terrainMesh.geometry.computeVertexNormals();
-  rebuildGrids(appState);
+  rebuildGrid(appState);
   if (appState.ball) appState.ball.refresh();
 }
 
@@ -189,7 +171,7 @@ export function applyHeightmapTemplate(name, appState) {
   }
   terrainMesh.geometry.attributes.position.needsUpdate = true;
   terrainMesh.geometry.computeVertexNormals();
-  rebuildGrids(appState);
+  rebuildGrid(appState);
   if (ball) ball.refresh();
 }
 
