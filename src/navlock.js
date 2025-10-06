@@ -31,35 +31,40 @@ export function initNavLock(opts = {}) {
       top: calc(${offset}px + env(safe-area-inset-top));
       left: ${offset}px;
       z-index: ${z};
-      background: rgba(16,19,24,0.75);
-      border: 1px solid rgba(255,255,255,0.12);
-      backdrop-filter: blur(10px);
-      color: #dbe3f1;
+      background: rgba(21,28,36,0.9);
+      border: 1px solid #2a3441;
+      color: #e6edf5;
       font: 600 12px/1.2 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-      border-radius: 12px;
+      border-radius: 0; /* square corners so it sits FLUSH */
       padding: 8px 10px;
       user-select: none;
       pointer-events: auto;
     }
+    /* On small/mobile screens give it a slight radius so it feels like a card */
+    @media (max-width: 899.98px){
+      #tc-navlock { border-radius: 8px; }
+    }
+
     #tc-navlock .row {
       display: flex; align-items: center; gap: 10px; justify-content: space-between;
     }
     #tc-navlock .title { letter-spacing: .2px; }
     #tc-navlock .hint { margin-top: 6px; opacity: .75; font-weight: 500; }
+
     /* iOS-friendly toggle */
     #tc-navlock .switch { position: relative; display: inline-block; width: 48px; height: 26px; }
     #tc-navlock .switch input { display: none; }
     #tc-navlock .slider {
       position: absolute; inset: 0; border-radius: 999px;
-      background: #2a2f3a; transition: .18s;
-      border: 1px solid rgba(255,255,255,0.12);
+      background: #223041; transition: .18s;
+      border: 1px solid #2a3441;
     }
     #tc-navlock .slider:before {
       content: ""; position: absolute; width: 20px; height: 20px; left: 3px; top: 3px;
       background: #fff; border-radius: 50%; transition: .18s;
       box-shadow: 0 1px 2px rgba(0,0,0,.35);
     }
-    #tc-navlock .switch input:checked + .slider { background: #1f8ae6; }
+    #tc-navlock .switch input:checked + .slider { background: #63b3ff; }
     #tc-navlock .switch input:checked + .slider:before { transform: translateX(22px); }
   `;
   document.head.appendChild(css);
