@@ -3,16 +3,31 @@ import * as THREE from 'three';
 import { rebuildGridAfterGeometry } from './terrain.js';
 
 const _clamp = (x, a, b) => Math.min(b, Math.max(a, x));
-let raycaster = new THREE.Raycaster();
 
+// Shared raycaster (used for sculpting and tap-to-move)
+let raycaster = new THREE.Raycaster();
+// Make LineSegments easier to hit when you tap near the red outline
+raycaster.params.Line = raycaster.params.Line || {};
+raycaster.params.Line.threshold = 2; // world units; tweak if your TILE_SIZE is very small/large
+
+// Map local X/Z to the nearest 1×1 tile of the main grid (NOT the subdivided geometry)
 function worldToTile(localX, localZ, config) {
   const { TILE_SIZE, TILES_X, TILES_Y } = config;
-  const W = TILES_X * TILE_SIZE, H = TILES_Y * TILE_SIZE;
-  const u = (localX + W / 2) / W, v = (localZ + H / 2) / H;
-  let i = Math.floor(u * TILES_X), j = Math.floor(v * TILES_Y);
+  const W = TILES_X * TILE_SIZE;
+  const H = TILES_Y * TILE_SIZE;
+
+  // Normalize to 0..1 across the whole mesh
+  const u = (localX + W / 2) / W;
+  const v = (localZ + H / 2) / H;
+
+  // Choose the tile whose CENTER is closest to the tap
+  let i = Math.round(u * TILES_X - 0.5);
+  let j = Math.round(v * TILES_Y - 0.5);
+
+  // Clamp into grid
   i = _clamp(i, 0, TILES_X - 1);
   j = _clamp(j, 0, TILES_Y - 1);
-  return { i, j }; // main tile indices
+  return { i, j };
 }
 
 function applySculpt(hitPoint, appState, uiState) {
@@ -29,9 +44,10 @@ function applySculpt(hitPoint, appState, uiState) {
 
   const { width, height, widthSegments, heightSegments } = geom.parameters;
 
-  // mapping to vertex grid
+  // Map hit to the vertex grid of the current geometry
   const u = (localHit.x + width / 2) / width;
   const v = (localHit.z + height / 2) / height;
+
   const hitVertX = Math.round(u * widthSegments);
   const hitVertZ = Math.round(v * heightSegments);
 
@@ -39,45 +55,54 @@ function applySculpt(hitPoint, appState, uiState) {
   const radiusInVerts = Math.ceil(worldBrushRadius / vertexCellWidth);
 
   const startX = Math.max(0, hitVertX - radiusInVerts);
-  const endX = Math.min(widthSegments, hitVertX + radiusInVerts);
+  const endX   = Math.min(widthSegments, hitVertX + radiusInVerts);
   const startZ = Math.max(0, hitVertZ - radiusInVerts);
-  const endZ = Math.min(heightSegments, hitVertZ + radiusInVerts);
+  const endZ   = Math.min(heightSegments, hitVertZ + radiusInVerts);
 
   const vertsPerRow = widthSegments + 1;
 
   if (uiState.mode === 'smooth') {
-    const heightsInBrush = [];
-    let totalHeight = 0;
+    const heights = [];
+    let total = 0;
+
     for (let z = startZ; z <= endZ; z++) {
       for (let x = startX; x <= endX; x++) {
-        const vertIndex = z * vertsPerRow + x;
-        const vertexY = vertices[vertIndex * 3 + 1];
+        const vi = z * vertsPerRow + x;
+        const yv = vertices[vi * 3 + 1];
+
         const dx = (x - hitVertX) * vertexCellWidth;
         const dz = (z - hitVertZ) * vertexCellWidth;
-        const distance = Math.hypot(dx, dz);
-        if (distance < worldBrushRadius) {
-          heightsInBrush.push({ index: vertIndex, height: vertexY });
-          totalHeight += vertexY;
+        const d = Math.hypot(dx, dz);
+
+        if (d < worldBrushRadius) {
+          heights.push({ index: vi, height: yv });
+          total += yv;
         }
       }
     }
-    if (!heightsInBrush.length) return;
-    const avg = totalHeight / heightsInBrush.length;
-    for (const vtx of heightsInBrush) {
+
+    if (!heights.length) return;
+    const avg = total / heights.length;
+
+    for (const vtx of heights) {
       const yi = vtx.index * 3 + 1;
-      vertices[yi] += (avg - vtx.height) * 0.1;
+      const cur = vtx.height;
+      vertices[yi] += (avg - cur) * 0.1;
     }
   } else {
     const sign = (uiState.mode === 'lower') ? -1 : 1;
+
     for (let z = startZ; z <= endZ; z++) {
       for (let x = startX; x <= endX; x++) {
-        const idx = z * vertsPerRow + x;
-        const yi = idx * 3 + 1;
+        const vi = z * vertsPerRow + x;
+        const yi = vi * 3 + 1;
+
         const dx = (x - hitVertX) * vertexCellWidth;
         const dz = (z - hitVertZ) * vertexCellWidth;
-        const distance = Math.hypot(dx, dz);
-        if (distance < worldBrushRadius) {
-          const falloff = Math.cos((distance / worldBrushRadius) * (Math.PI / 2));
+        const d = Math.hypot(dx, dz);
+
+        if (d < worldBrushRadius) {
+          const falloff = Math.cos((d / worldBrushRadius) * (Math.PI / 2));
           const delta = falloff * uiState.step;
           vertices[yi] = _clamp(vertices[yi] + delta * sign, MIN_H, MAX_H);
         }
@@ -88,10 +113,11 @@ function applySculpt(hitPoint, appState, uiState) {
   posAttr.needsUpdate = true;
   geom.computeVertexNormals();
 
-  // keep red grid glued to terrain
+  // Keep the red grid glued to the sculpted terrain
   rebuildGridAfterGeometry(appState);
 
-  ball?.refresh();
+  // Re-snap ball to height if it exists
+  if (ball) ball.refresh();
 }
 
 export function initSculpting(appState, getUiState) {
@@ -108,9 +134,10 @@ export function initSculpting(appState, getUiState) {
     const y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera({ x, y }, camera);
 
+    // Allow sculpting when clicking either the terrain OR the red grid lines
     const targets = [];
     if (appState.terrainMesh) targets.push(appState.terrainMesh);
-    if (appState.gridLines)   targets.push(appState.gridLines); // allow sculpt via grid clicks
+    if (appState.gridLines)   targets.push(appState.gridLines);
 
     const hits = raycaster.intersectObjects(targets, false);
     if (hits.length > 0) applySculpt(hits[0].point, appState, uiState);
@@ -118,18 +145,21 @@ export function initSculpting(appState, getUiState) {
 
   renderer.domElement.addEventListener('pointerdown', (ev) => {
     if (!getUiState().sculptOn) return;
-    try { renderer.domElement.setPointerCapture(ev.pointerId); } catch (_) {}
+    try { renderer.domElement.setPointerCapture(ev.pointerId); } catch(_) {}
     dragging = true;
     cast(ev);
   });
+
   renderer.domElement.addEventListener('pointermove', (ev) => {
     if (dragging && getUiState().sculptOn) cast(ev);
   });
+
   window.addEventListener('pointerup', () => { dragging = false; });
 }
 
 export function initTapToMove(appState, getUiState, getAllowTapMove) {
   const { renderer, camera } = appState;
+
   renderer.domElement.addEventListener('pointerdown', (ev) => {
     const uiState = getUiState();
     if (uiState.sculptOn || !getAllowTapMove()) return;
@@ -140,6 +170,7 @@ export function initTapToMove(appState, getUiState, getAllowTapMove) {
     const y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera({ x, y }, camera);
 
+    // Let grid line hits guide the tile choice, else fall back to terrain
     const targets = [];
     if (appState.terrainMesh) targets.push(appState.terrainMesh);
     if (appState.gridLines)   targets.push(appState.gridLines);
