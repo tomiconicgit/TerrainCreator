@@ -1,5 +1,5 @@
 // file: src/ui.js
-import { createTerrain, randomizeTerrain, applyHeightmapTemplate } from './terrain.js';
+import { createTerrain, randomizeTerrain, applyHeightmapTemplate, setMainGridVisible } from './terrain.js';
 import { populateTrees } from './trees.js';
 import { updateCameraBounds } from './camera.js';
 
@@ -10,12 +10,10 @@ let uiState = {
   mode: 'raise' // raise | lower | smooth
 };
 
-export function getUiState() {
-  return uiState;
-}
+export function getUiState() { return uiState; }
 
 export function initUI(appState) {
-  // ---- Tabs ----
+  // Tabs
   document.querySelectorAll('.tab').forEach(b => {
     b.addEventListener('click', () => {
       document.querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
@@ -25,7 +23,7 @@ export function initUI(appState) {
     });
   });
 
-  // ---- Terrain Tab ----
+  // Terrain
   const tilesX = document.getElementById('tilesX');
   const tilesY = document.getElementById('tilesY');
   document.getElementById('genTerrain').addEventListener('click', () => {
@@ -33,6 +31,7 @@ export function initUI(appState) {
     appState.config.TILES_Y = Math.max(2, Math.min(256, parseInt(tilesY.value || '30', 10)));
     createTerrain(appState);
     updateCameraBounds(appState);
+    applyGridButtonState();
   });
 
   document.getElementById('randomize').addEventListener('click', () => randomizeTerrain(appState));
@@ -46,13 +45,12 @@ export function initUI(appState) {
     populateTrees(n, appState);
   });
 
-  // ---- Sculpt Tab ----
+  // Sculpt
   const sculptOn = document.getElementById('sculptOn');
   sculptOn.addEventListener('change', (e) => {
     uiState.sculptOn = e.target.checked;
     appState.controls.enabled = !uiState.sculptOn;
   });
-
   const stepInput = document.getElementById('stepInput');
   const radiusInput = document.getElementById('radiusInput');
   stepInput.addEventListener('change', () => uiState.step = parseFloat(stepInput.value));
@@ -83,21 +81,25 @@ export function initUI(appState) {
   modeLower.addEventListener('click', () => setMode('lower'));
   modeSmooth.addEventListener('click', () => setMode('smooth'));
 
-  // ---- PWA Install ----
-  let promptEvt = null;
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    promptEvt = e;
+  // Grid toggle (ON/OFF for the main grid)
+  const gridBtn = document.getElementById('toggleGrid');
+  const applyGridButtonState = () => {
+    const on = !!appState.gridMainVisible;
+    gridBtn.textContent = on ? 'Grid: On' : 'Grid: Off';
+  };
+  gridBtn.addEventListener('click', () => {
+    setMainGridVisible(appState, !(appState.gridMainVisible));
+    applyGridButtonState();
   });
+  // init label
+  applyGridButtonState();
+
+  // PWA install prompt
+  let promptEvt = null;
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); promptEvt = e; });
   const installBtn = document.getElementById('installBtn');
-  if (installBtn) {
-    installBtn.addEventListener('click', () => {
-      if (promptEvt) {
-        promptEvt.prompt();
-        promptEvt = null;
-      } else {
-        alert('To install: Share > Add to Home Screen');
-      }
-    });
-  }
+  installBtn?.addEventListener('click', () => {
+    if (promptEvt) { promptEvt.prompt(); promptEvt = null; }
+    else alert('To install: Share > Add to Home Screen');
+  });
 }
