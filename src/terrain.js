@@ -3,11 +3,14 @@ import * as THREE from 'three';
 import { dispose } from './utils.js';
 import BallMarker from './character.js';
 
-// single main grid helper
-let edgesHelperMain = null;
-const SUBDIVISIONS = 4; // geometry density per 1x1 tile
+// how many terrain-geometry segments per 1×1 tile
+const SUBDIVISIONS = 4;
 
-// Simple, vertex-colored material
+// internal refs
+let gridLines = null;          // THREE.LineSegments (red grid)
+let gridPositions = null;      // Float32Array backing the grid's BufferGeometry
+
+// ---------- materials / helpers ----------
 function makeSimpleMaterial() {
   return new THREE.MeshStandardMaterial({
     color: 0xffffff,
@@ -17,7 +20,7 @@ function makeSimpleMaterial() {
   });
 }
 
-function setAllVertexColors(geom, colorHex = 0xD2B48C /* sandy tan */) {
+function setAllVertexColors(geom, colorHex = 0xD2B48C) {
   const col = new THREE.Color(colorHex);
   const { widthSegments, heightSegments } = geom.parameters;
   const vertexCount = (widthSegments + 1) * (heightSegments + 1);
@@ -30,7 +33,7 @@ function setAllVertexColors(geom, colorHex = 0xD2B48C /* sandy tan */) {
   geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 }
 
-// --- sampling height on the current mesh (bilinear) --------------------------
+// Bilinear sample of CURRENT terrain heights (mesh local X/Z -> Y)
 function sampleHeightLocal(x, z, terrainMesh, config) {
   const { TILES_X, TILES_Y, TILE_SIZE } = config;
   const W = TILES_X * TILE_SIZE;
@@ -48,16 +51,16 @@ function sampleHeightLocal(x, z, terrainMesh, config) {
 
   const ix = Math.floor(gx);
   const iz = Math.floor(gz);
-  const fx = THREE.MathUtils.clamp(gx - ix, 0, 1);
-  const fz = THREE.MathUtils.clamp(gz - iz, 0, 1);
+  const fx = Math.min(1, Math.max(0, gx - ix));
+  const fz = Math.min(1, Math.max(0, gz - iz));
 
   const vpr = widthSegments + 1;
   const Y = (jj, ii) => pos[((jj) * vpr + (ii)) * 3 + 1];
 
-  const x0 = THREE.MathUtils.clamp(ix, 0, widthSegments);
-  const z0 = THREE.MathUtils.clamp(iz, 0, heightSegments);
-  const x1 = THREE.MathUtils.clamp(ix + 1, 0, widthSegments);
-  const z1 = THREE.MathUtils.clamp(iz + 1, 0, heightSegments);
+  const x0 = Math.min(widthSegments, Math.max(0, ix));
+  const z0 = Math.min(heightSegments, Math.max(0, iz));
+  const x1 = Math.min(widthSegments, x0 + 1);
+  const z1 = Math.min(heightSegments, z0 + 1);
 
   const y00 = Y(z0, x0);
   const y10 = Y(z0, x1);
@@ -69,83 +72,106 @@ function sampleHeightLocal(x, z, terrainMesh, config) {
   return y0 * (1 - fz) + y1 * fz;
 }
 
-// --- grid builder that HUGS the terrain -------------------------------------
-function rebuildMainGrid(appState) {
-  const terrainGroup = appState.terrainGroup;
-  const terrainMesh = appState.terrainMesh;
-  const config = appState.config;
-  if (!terrainGroup || !terrainMesh) return;
-
-  // clear previous
-  if (edgesHelperMain) {
-    try { edgesHelperMain.geometry?.dispose(); } catch {}
-    try { edgesHelperMain.material?.dispose(); } catch {}
-    try { terrainGroup.remove(edgesHelperMain); } catch {}
-    edgesHelperMain = null;
+// ---------- red grid (build once, then UPDATE) ----------
+function buildMainGrid(appState) {
+  // clean old
+  if (gridLines) {
+    try { gridLines.geometry?.dispose(); } catch {}
+    try { gridLines.material?.dispose(); } catch {}
+    try { appState.terrainGroup?.remove(gridLines); } catch {}
   }
+  gridLines = null;
+  gridPositions = null;
 
-  const { TILES_X, TILES_Y, TILE_SIZE } = config;
+  const { TILES_X, TILES_Y, TILE_SIZE } = appState.config;
   const W = TILES_X * TILE_SIZE;
   const H = TILES_Y * TILE_SIZE;
 
-  // Number of samples along a tile edge = geometry subdivisions per tile
   const segsX = TILES_X * SUBDIVISIONS;
   const segsY = TILES_Y * SUBDIVISIONS;
 
-  // Build as LineSegments: for each polyline, add (p_k, p_{k+1}) pairs
-  const verts = [];
-  const lift = 0.6; // small lift to avoid z-fighting with the surface
+  // pair-per-segment for both directions
+  const segmentsCount = (TILES_X * segsY) + (TILES_Y * segsX) + segsY + segsX; // includes edges (i==0..TILES_X / j==0..TILES_Y)
+  const floats = segmentsCount * 2 /*points*/ * 3 /*xyz*/;
 
-  // Vertical grid lines (constant x, marching along z)
+  const geom = new THREE.BufferGeometry();
+  gridPositions = new Float32Array(floats);
+  geom.setAttribute('position', new THREE.BufferAttribute(gridPositions, 3));
+
+  const mat = new THREE.LineBasicMaterial({ color: 0xff4d4d, transparent: true, opacity: 0.95 });
+  gridLines = new THREE.LineSegments(geom, mat);
+  gridLines.name = 'MainTileGrid';
+  gridLines.renderOrder = 2;
+  gridLines.frustumCulled = false;
+
+  appState.terrainGroup.add(gridLines);
+
+  // first layout (flat); immediately refresh to match current terrain
+  refreshMainGrid(appState);
+}
+
+export function refreshMainGrid(appState) {
+  if (!appState.terrainMesh || !gridLines || !gridPositions) return;
+
+  const { TILES_X, TILES_Y, TILE_SIZE } = appState.config;
+  const W = TILES_X * TILE_SIZE;
+  const H = TILES_Y * TILE_SIZE;
+
+  const segsX = TILES_X * SUBDIVISIONS;
+  const segsY = TILES_Y * SUBDIVISIONS;
+
+  const lift = 0.6;
+  let p = 0;
+
+  // vertical lines (constant x, marching in z)
   for (let i = 0; i <= TILES_X; i++) {
     const x = -W / 2 + i * TILE_SIZE;
     for (let k = 0; k < segsY; k++) {
       const z0 = -H / 2 + (k / segsY) * H;
       const z1 = -H / 2 + ((k + 1) / segsY) * H;
-      const y0 = sampleHeightLocal(x, z0, terrainMesh, config) + lift;
-      const y1 = sampleHeightLocal(x, z1, terrainMesh, config) + lift;
-      verts.push(x, y0, z0,  x, y1, z1);
+      const y0 = sampleHeightLocal(x, z0, appState.terrainMesh, appState.config) + lift;
+      const y1 = sampleHeightLocal(x, z1, appState.terrainMesh, appState.config) + lift;
+
+      gridPositions[p++] = x;  gridPositions[p++] = y0; gridPositions[p++] = z0;
+      gridPositions[p++] = x;  gridPositions[p++] = y1; gridPositions[p++] = z1;
     }
   }
 
-  // Horizontal grid lines (constant z, marching along x)
+  // horizontal lines (constant z, marching in x)
   for (let j = 0; j <= TILES_Y; j++) {
     const z = -H / 2 + j * TILE_SIZE;
     for (let k = 0; k < segsX; k++) {
       const x0 = -W / 2 + (k / segsX) * W;
       const x1 = -W / 2 + ((k + 1) / segsX) * W;
-      const y0 = sampleHeightLocal(x0, z, terrainMesh, config) + lift;
-      const y1 = sampleHeightLocal(x1, z, terrainMesh, config) + lift;
-      verts.push(x0, y0, z,  x1, y1, z);
+      const y0 = sampleHeightLocal(x0, z, appState.terrainMesh, appState.config) + lift;
+      const y1 = sampleHeightLocal(x1, z, appState.terrainMesh, appState.config) + lift;
+
+      gridPositions[p++] = x0; gridPositions[p++] = y0; gridPositions[p++] = z;
+      gridPositions[p++] = x1; gridPositions[p++] = y1; gridPositions[p++] = z;
     }
   }
 
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-  const m = new THREE.LineBasicMaterial({ color: 0xff4d4d, transparent: true, opacity: 0.95 });
-  edgesHelperMain = new THREE.LineSegments(g, m);
-  edgesHelperMain.renderOrder = 2;
-  edgesHelperMain.name = 'MainTileGrid';
+  gridLines.geometry.attributes.position.needsUpdate = true;
+  gridLines.geometry.computeBoundingSphere();
+  appState.gridLines = gridLines; // expose for raycasting
+}
 
-  terrainGroup.add(edgesHelperMain);
-  appState.gridLines = edgesHelperMain; // expose for raycasting
+export function rebuildGridAfterGeometry(appState) {
+  // If grid exists, update in place; otherwise build it.
+  if (gridLines && gridPositions) refreshMainGrid(appState);
+  else buildMainGrid(appState);
 }
 
 export function setMainGridVisible(appState, visible) {
+  if (gridLines) gridLines.visible = !!visible;
   appState.gridMainVisible = !!visible;
-  if (edgesHelperMain) edgesHelperMain.visible = appState.gridMainVisible;
 }
 
-// Called whenever geometry heights change
-export function rebuildGridAfterGeometry(appState) {
-  rebuildMainGrid(appState);
-  setMainGridVisible(appState, appState.gridMainVisible ?? true);
-}
-
-// --- public terrain API ------------------------------------------------------
+// ---------- terrain lifecycle ----------
 export function createTerrain(appState) {
   const { scene } = appState;
   const { TILES_X, TILES_Y, TILE_SIZE, CHAR_HEIGHT_UNITS } = appState.config;
+
   const W = TILES_X * TILE_SIZE;
   const H = TILES_Y * TILE_SIZE;
 
@@ -174,8 +200,9 @@ export function createTerrain(appState) {
   appState.terrainMesh = mesh;
   appState.terrainMaterial = mat;
 
-  if (appState.gridMainVisible == null) appState.gridMainVisible = true;
-  rebuildGridAfterGeometry(appState);
+  // (Re)build grid now that we have the mesh
+  buildMainGrid(appState);
+  setMainGridVisible(appState, appState.gridMainVisible ?? true);
 
   const ballRadius = Math.max(6, Math.min(TILE_SIZE * 0.45, CHAR_HEIGHT_UNITS * 0.35));
   appState.ball?.dispose();
@@ -197,12 +224,14 @@ export function randomizeTerrain(appState) {
   for (let i = 1; i < arr.length; i += 3) arr[i] += (Math.random() - 0.5) * 2.5;
   appState.terrainMesh.geometry.attributes.position.needsUpdate = true;
   appState.terrainMesh.geometry.computeVertexNormals();
+  // keep grid synced
   rebuildGridAfterGeometry(appState);
   appState.ball?.refresh();
 }
 
 export function applyHeightmapTemplate(name, appState) {
   if (!appState.terrainMesh) return;
+
   const { terrainMesh, ball } = appState;
   const { widthSegments, heightSegments } = terrainMesh.geometry.parameters;
 
@@ -231,6 +260,8 @@ export function applyHeightmapTemplate(name, appState) {
   }
   terrainMesh.geometry.attributes.position.needsUpdate = true;
   terrainMesh.geometry.computeVertexNormals();
+
+  // sync grid after template
   rebuildGridAfterGeometry(appState);
   ball?.refresh();
 }
