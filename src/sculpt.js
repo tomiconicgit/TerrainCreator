@@ -11,7 +11,7 @@ function worldToTile(localX, localZ, config) {
   let i = Math.floor(u * TILES_X), j = Math.floor(v * TILES_Y);
   i = _clamp(i, 0, TILES_X - 1);
   j = _clamp(j, 0, TILES_Y - 1);
-  return { i, j }; // <-- ALWAYS main tile indices (ignores sub-divisions)
+  return { i, j }; // main tile indices
 }
 
 function applySculpt(hitPoint, appState, uiState) {
@@ -28,8 +28,9 @@ function applySculpt(hitPoint, appState, uiState) {
 
   const { width, height, widthSegments, heightSegments } = geom.parameters;
 
+  // ---- MIRROR FIX: use the same Z mapping as elsewhere (no inversion) ----
   const u = (localHit.x + width / 2) / width;
-  const v = 1.0 - ((localHit.z + height / 2) / height); // fix for rotated plane
+  const v = (localHit.z + height / 2) / height;
 
   const hitVertX = Math.round(u * widthSegments);
   const hitVertZ = Math.round(v * heightSegments);
@@ -143,7 +144,7 @@ export function initTapToMove(appState, getUiState, getAllowTapMove) {
     const hits = raycaster.intersectObject(appState.terrainMesh, false);
     if (hits.length > 0) {
       const local = appState.terrainMesh.worldToLocal(hits[0].point.clone());
-      const { i, j } = worldToTile(local.x, local.z, appState.config); // main tile indices
+      const { i, j } = worldToTile(local.x, local.z, appState.config);
       appState.ball.placeOnTile(i, j);
       if (appState.camFollowEnabled) {
         appState.controls.lookAt(appState.ball.mesh.position);
