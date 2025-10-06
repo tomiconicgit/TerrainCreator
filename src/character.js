@@ -1,5 +1,11 @@
 // file: src/character.js
-// Red ball that can snap to either sub-tile indices or "main tile" indices.
+// Places a red ball on a specific terrain tile and keeps it pinned to the tile height.
+// Usage:
+//   import BallMarker from './character.js';
+//   const ball = new BallMarker({ three: THREE, scene, terrainMesh, tileI: 10, tileJ: 12 });
+//   ball.placeOnTile(15, 14);  // move later
+//   ball.refresh();            // call after you sculpt to re-snap to height
+
 export default class BallMarker {
   constructor({
     three,
@@ -24,6 +30,7 @@ export default class BallMarker {
     this.tileJ = this._clamp(tileJ, 0, p.hSeg - 1);
     this.hover = hover;
 
+    // make mesh
     const geom = new this.THREE.SphereGeometry(radius, 24, 18);
     const mat  = new this.THREE.MeshStandardMaterial({ color, metalness: 0.1, roughness: 0.35 });
     const ball = new this.THREE.Mesh(geom, mat);
@@ -48,7 +55,6 @@ export default class BallMarker {
     }
   }
 
-  // Move using fine (sub-tile) indices
   placeOnTile(i, j) {
     const p = this._params();
     this.tileI = this._clamp(i, 0, p.wSeg - 1);
@@ -56,17 +62,8 @@ export default class BallMarker {
     this._snapToTile(this.tileI, this.tileJ);
   }
 
-  // Move using main tile indices; SUBDIV = sub-tiles per big tile edge
-  placeOnMainTile(mainI, mainJ, SUBDIV = 4) {
-    const p = this._params();
-    const centerSubI = Math.floor(mainI * SUBDIV + (SUBDIV / 2) - 0.5);
-    const centerSubJ = Math.floor(mainJ * SUBDIV + (SUBDIV / 2) - 0.5);
-    this.tileI = this._clamp(centerSubI, 0, p.wSeg - 1);
-    this.tileJ = this._clamp(centerSubJ, 0, p.hSeg - 1);
-    this._snapToTile(this.tileI, this.tileJ);
-  }
-
   refresh() {
+    // Call after terrain sculpt/geometry updates so the ball re-snaps to height
     this._snapToTile(this.tileI, this.tileJ);
   }
 
@@ -74,6 +71,7 @@ export default class BallMarker {
 
   _params() {
     const g = this.terrainMesh.geometry;
+    // PlaneGeometry stores creation params here:
     const width  = g.parameters.width;
     const height = g.parameters.height;
     const wSeg   = g.parameters.widthSegments;
