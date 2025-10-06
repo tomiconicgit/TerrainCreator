@@ -6,49 +6,28 @@ import BallMarker from './character.js';
 let edgesHelper = null;
 const SUBDIVISIONS = 4;
 
-// --- UPGRADED SHADER WITH LIGHTING ---
-const vertexShader = `
-  varying vec2 vUv;
-  varying vec3 vColor;
-  varying vec3 vWorldNormal;
+// Simple, no-image material (vertex colors enabled)
+function makeSimpleMaterial() {
+  return new THREE.MeshStandardMaterial({
+    color: 0xffffff,          // multiplied by vertex colors
+    metalness: 0.05,
+    roughness: 0.9,
+    vertexColors: true
+  });
+}
 
-  void main() {
-    vColor = color;
-    vUv = uv;
-    // Pass the vertex normal in world space to the fragment shader for lighting
-    vWorldNormal = normalize(mat3(modelMatrix) * normal);
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+function setAllVertexColors(geom, colorHex = 0xD2B48C /* sandy tan */) {
+  const col = new THREE.Color(colorHex);
+  const { widthSegments, heightSegments } = geom.parameters;
+  const vertexCount = (widthSegments + 1) * (heightSegments + 1);
+  const colors = new Float32Array(vertexCount * 3);
+  for (let i = 0; i < vertexCount; i++) {
+    colors[i * 3 + 0] = col.r;
+    colors[i * 3 + 1] = col.g;
+    colors[i * 3 + 2] = col.b;
   }
-`;
-
-const fragmentShader = `
-  uniform sampler2D uSandTexture;
-  uniform sampler2D uLeavesTexture;
-  uniform vec3 uSunDirection;
-
-  varying vec2 vUv;
-  varying vec3 vColor;
-  varying vec3 vWorldNormal;
-
-  void main() {
-    vec2 tileUv = fract(vUv);
-    vec3 sandColor = texture2D(uSandTexture, tileUv).rgb;
-    vec3 leavesColor = texture2D(uLeavesTexture, tileUv).rgb;
-
-    // The blended texture color based on our painting
-    vec3 blendedColor = mix(sandColor, leavesColor, vColor.r);
-
-    // --- Basic Lighting Calculation ---
-    // A simple ambient light to make sure nothing is ever pure black
-    float ambient = 0.4;
-    // Calculate directional light based on the surface normal and sun direction
-    float diffuse = max(0.0, dot(vWorldNormal, uSunDirection)) * 0.6;
-    
-    vec3 finalColor = blendedColor * (ambient + diffuse);
-
-    gl_FragColor = vec4(finalColor, 1.0);
-  }
-`;
+  geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+}
 
 function rebuildEdges(terrainGroup, terrainMesh) {
   if (!terrainMesh) return;
@@ -65,172 +44,101 @@ function rebuildEdges(terrainGroup, terrainMesh) {
 }
 
 export function createTerrain(appState) {
-    const { scene } = appState;
-    const { TILES_X, TILES_Y, TILE_SIZE, CHAR_HEIGHT_UNITS } = appState.config;
-    const W = TILES_X * TILE_SIZE;
-    const H = TILES_Y * TILE_SIZE;
+  const { scene } = appState;
+  const { TILES_X, TILES_Y, TILE_SIZE, CHAR_HEIGHT_UNITS } = appState.config;
+  const W = TILES_X * TILE_SIZE;
+  const H = TILES_Y * TILE_SIZE;
 
-    dispose(appState.terrainGroup);
-    dispose(appState.treesGroup);
-    appState.treesGroup = null;
-    
-    const widthSegments = TILES_X * SUBDIVISIONS;
-    const heightSegments = TILES_Y * SUBDIVISIONS;
-    const geom = new THREE.PlaneGeometry(W, H, widthSegments, heightSegments);
-    geom.rotateX(-Math.PI / 2);
+  dispose(appState.terrainGroup);
+  dispose(appState.treesGroup);
+  appState.treesGroup = null;
 
-    const uvs = geom.attributes.uv.array;
-    for (let i = 0; i < uvs.length; i += 2) {
-        uvs[i] *= TILES_X;
-        uvs[i + 1] *= TILES_Y;
-    }
+  const widthSegments = TILES_X * SUBDIVISIONS;
+  const heightSegments = TILES_Y * SUBDIVISIONS;
+  const geom = new THREE.PlaneGeometry(W, H, widthSegments, heightSegments);
+  geom.rotateX(-Math.PI / 2);
 
-    const textureLoader = new THREE.TextureLoader();
-    const loadTexture = (path) => {
-        const texture = textureLoader.load(path);
-        texture.wrapS = THREE.ClampToEdgeWrapping;
-        texture.wrapT = THREE.ClampToEdgeWrapping;
-        texture.colorSpace = THREE.SRGBColorSpace;
-        return texture;
-    };
-    
-    const createPlaceholderTexture = (color) => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 1; canvas.height = 1;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = color;
-        ctx.fillRect(0, 0, 1, 1);
-        const texture = new THREE.CanvasTexture(canvas);
-        texture.colorSpace = THREE.SRGBColorSpace;
-        return texture;
-    };
+  const mat = makeSimpleMaterial();
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.receiveShadow = true;
 
-    const terrainMaterial = new THREE.ShaderMaterial({
-        uniforms: {
-            uSandTexture: { value: createPlaceholderTexture('#d2b48c') },
-            uLeavesTexture: { value: loadTexture('./src/assets/textures/leaves-diffuse.jpg') },
-            // Add the sun direction uniform for our new lighting calculation
-            uSunDirection: { value: new THREE.Vector3(0, 1, 0) },
-        },
-        vertexShader: vertexShader,
-        fragmentShader: fragmentShader,
-        vertexColors: true,
-    });
-    appState.terrainMaterial = terrainMaterial;
-    
-    const vertexCount = (widthSegments + 1) * (heightSegments + 1);
-    geom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(vertexCount * 3), 3));
-    
-    const mesh = new THREE.Mesh(geom, terrainMaterial);
-    // Because this is a custom lit shader, it won't receive shadows automatically.
-    // We can add that back if needed, but for now, we'll keep it simple.
-    mesh.receiveShadow = false;
+  // Vertex colors (simple sand color everywhere)
+  setAllVertexColors(geom, 0xD2B48C);
 
-    const terrainGroup = new THREE.Group();
-    terrainGroup.name = 'TileTerrain';
-    terrainGroup.add(mesh);
-    scene.add(terrainGroup);
+  const terrainGroup = new THREE.Group();
+  terrainGroup.name = 'TileTerrain';
+  terrainGroup.add(mesh);
+  scene.add(terrainGroup);
 
-    appState.terrainGroup = terrainGroup;
-    appState.terrainMesh = mesh;
+  appState.terrainGroup = terrainGroup;
+  appState.terrainMesh = mesh;
+  appState.terrainMaterial = mat;
 
-    rebuildEdges(terrainGroup, mesh);
+  rebuildEdges(terrainGroup, mesh);
 
-    const ballRadius = Math.max(6, Math.min(TILE_SIZE * 0.45, CHAR_HEIGHT_UNITS * 0.35));
-    if (appState.ball) appState.ball.dispose();
+  const ballRadius = Math.max(6, Math.min(TILE_SIZE * 0.45, CHAR_HEIGHT_UNITS * 0.35));
+  if (appState.ball) appState.ball.dispose();
 
-    appState.ball = new BallMarker({
-      three: THREE,
-      scene: scene,
-      terrainMesh: mesh,
-      tileI: Math.floor(TILES_X / 3),
-      tileJ: Math.floor(TILES_Y / 3),
-      radius: ballRadius,
-      color: 0xff2b2b,
-      config: appState.config, 
-    });
-}
-
-export function paintTextureOnTile(ci, cj, texture, radius, appState) {
-    const { terrainMesh, config } = appState;
-    if (!terrainMesh) return;
-
-    const paintValue = (texture === 'leaves') ? 1.0 : 0.0;
-    const colorAttr = terrainMesh.geometry.attributes.color;
-    
-    const actualSubdivisions = terrainMesh.geometry.parameters.widthSegments / config.TILES_X;
-    const totalVertsX = config.TILES_X * actualSubdivisions + 1;
-
-    for (let j = cj - radius; j <= cj + radius; j++) {
-        for (let i = ci - radius; i <= ci + radius; i++) {
-            if (i >= 0 && i < config.TILES_X && j >= 0 && j < config.TILES_Y) {
-                const dist = Math.hypot(i - ci, j - cj);
-                if (dist <= radius) {
-                    for (let subJ = 0; subJ <= actualSubdivisions; subJ++) {
-                        for (let subI = 0; subI <= actualSubdivisions; subI++) {
-                            const vertX = i * actualSubdivisions + subI;
-                            const vertY = j * actualSubdivisions + subJ;
-                            const vertIndex = vertY * totalVertsX + vertX;
-                            
-                            if (colorAttr.getX(vertIndex) !== paintValue) {
-                                colorAttr.setX(vertIndex, paintValue);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    colorAttr.needsUpdate = true;
+  appState.ball = new BallMarker({
+    three: THREE,
+    scene: scene,
+    terrainMesh: mesh,
+    tileI: Math.floor(TILES_X / 3),
+    tileJ: Math.floor(TILES_Y / 3),
+    radius: ballRadius,
+    color: 0xff2b2b,
+    config: appState.config,
+  });
 }
 
 export function randomizeTerrain(appState) {
-    if (!appState.terrainMesh) return;
-    const arr = appState.terrainMesh.geometry.attributes.position.array;
-    for (let i = 1; i < arr.length; i += 3) {
-      arr[i] += (Math.random() - 0.5) * 2.5;
-    }
-    appState.terrainMesh.geometry.attributes.position.needsUpdate = true;
-    appState.terrainMesh.geometry.computeVertexNormals();
-    rebuildEdges(appState.terrainGroup, appState.terrainMesh);
-    if (appState.ball) appState.ball.refresh();
+  if (!appState.terrainMesh) return;
+  const arr = appState.terrainMesh.geometry.attributes.position.array;
+  for (let i = 1; i < arr.length; i += 3) {
+    arr[i] += (Math.random() - 0.5) * 2.5;
+  }
+  appState.terrainMesh.geometry.attributes.position.needsUpdate = true;
+  appState.terrainMesh.geometry.computeVertexNormals();
+  rebuildEdges(appState.terrainGroup, appState.terrainMesh);
+  if (appState.ball) appState.ball.refresh();
 }
 
 export function applyHeightmapTemplate(name, appState) {
-    if (!appState.terrainMesh) return;
-    const { terrainMesh, ball } = appState;
-    
-    const { widthSegments, heightSegments } = terrainMesh.geometry.parameters;
+  if (!appState.terrainMesh) return;
+  const { terrainMesh, ball } = appState;
 
-    const pos = terrainMesh.geometry.attributes.position.array;
-    const minH = -80, maxH = 120, range = maxH - minH;
-    let idx = 1;
-    for (let jy = 0; jy <= heightSegments; jy++) {
-        const v = jy / heightSegments;
-        for (let ix = 0; ix <= widthSegments; ix++) {
-            const u = ix / widthSegments;
-            let n = 0;
-            switch (name) {
-                case 'Flat': n = -1; break;
-                case 'DiamondSquare': n = Math.abs(_fbm(u * 2.5, v * 2.5, 5, 2, .5)) * 2 - 1; break;
-                case 'Perlin': n = _fbm(u * 2.5, v * 2.5, 5, 2, .5, _perlin2); break;
-                case 'Simplex': n = _fbm(u * 2.8, v * 2.8, 6, 2.1, .5, _perlin2); break;
-                case 'Fault': n = _fault(u * 2.5, v * 2.5, 64); break;
-                case 'Cosine': n = Math.cos(_fbm(u * 2.0, v * 2.0, 4, 2, .5) * Math.PI); break;
-                case 'Value': n = _fbm((u * 2.5 | 0) + .001, (v * 2.5 | 0) + .001, 3, 2, .6, _perlin2); break;
-                case 'Worley': n = _worley2(u, v, 3, 16); break;
-                default: n = 0;
-            }
-            pos[idx] = minH + ((n + 1) * 0.5) * range;
-            idx += 3;
-        }
+  const { widthSegments, heightSegments } = terrainMesh.geometry.parameters;
+
+  const pos = terrainMesh.geometry.attributes.position.array;
+  const minH = -80, maxH = 120, range = maxH - minH;
+  let idx = 1;
+  for (let jy = 0; jy <= heightSegments; jy++) {
+    const v = jy / heightSegments;
+    for (let ix = 0; ix <= widthSegments; ix++) {
+      const u = ix / widthSegments;
+      let n = 0;
+      switch (name) {
+        case 'Flat': n = -1; break;
+        case 'DiamondSquare': n = Math.abs(_fbm(u * 2.5, v * 2.5, 5, 2, .5)) * 2 - 1; break;
+        case 'Perlin': n = _fbm(u * 2.5, v * 2.5, 5, 2, .5, _perlin2); break;
+        case 'Simplex': n = _fbm(u * 2.8, v * 2.8, 6, 2.1, .5, _perlin2); break;
+        case 'Fault': n = _fault(u * 2.5, v * 2.5, 64); break;
+        case 'Cosine': n = Math.cos(_fbm(u * 2.0, v * 2.0, 4, 2, .5) * Math.PI); break;
+        case 'Value': n = _fbm((u * 2.5 | 0) + .001, (v * 2.5 | 0) + .001, 3, 2, .6, _perlin2); break;
+        case 'Worley': n = _worley2(u, v, 3, 16); break;
+        default: n = 0;
+      }
+      pos[idx] = minH + ((n + 1) * 0.5) * range;
+      idx += 3;
     }
-    terrainMesh.geometry.attributes.position.needsUpdate = true;
-    terrainMesh.geometry.computeVertexNormals();
-    rebuildEdges(appState.terrainGroup, appState.terrainMesh);
-    if (ball) ball.refresh();
+  }
+  terrainMesh.geometry.attributes.position.needsUpdate = true;
+  terrainMesh.geometry.computeVertexNormals();
+  rebuildEdges(appState.terrainGroup, appState.terrainMesh);
+  if (ball) ball.refresh();
 }
 
+// --- noise helpers (unchanged) ---
 const _clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const _smooth = (t) => t * t * (3 - 2 * t);
 const _perm = new Uint8Array(512);
