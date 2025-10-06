@@ -1,6 +1,5 @@
 // file: src/sculpt.js
 import * as THREE from 'three';
-import { rebuildEdges } from './terrain.js';
 
 const _clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 let raycaster = new THREE.Raycaster();
@@ -16,7 +15,7 @@ function worldToTile(localX, localZ, config) {
 }
 
 function applySculpt(hitPoint, appState, uiState) {
-  const { terrainMesh, ball, config, terrainGroup } = appState;
+  const { terrainMesh, ball, config } = appState;
   if (!terrainMesh) return;
 
   const { MIN_H, MAX_H, TILE_SIZE } = config;
@@ -29,7 +28,7 @@ function applySculpt(hitPoint, appState, uiState) {
 
   const { width, height, widthSegments, heightSegments } = geom.parameters;
 
-  // Map to geometry subdivisions (no mirroring)
+  // ---- consistent mapping ----
   const u = (localHit.x + width / 2) / width;
   const v = (localHit.z + height / 2) / height;
 
@@ -97,11 +96,6 @@ function applySculpt(hitPoint, appState, uiState) {
 
   posAttr.needsUpdate = true;
   geom.computeVertexNormals();
-
-  // 🔄 keep edges overlay stuck to the edited geometry
-  rebuildEdges(terrainGroup, terrainMesh);
-
-  // Re-snap the marker
   if (ball) ball.refresh();
 }
 
@@ -151,8 +145,7 @@ export function initTapToMove(appState, getUiState, getAllowTapMove) {
     if (hits.length > 0) {
       const local = appState.terrainMesh.worldToLocal(hits[0].point.clone());
       const { i, j } = worldToTile(local.x, local.z, appState.config);
-      // 👉 move by main tile, not sub-tile
-      appState.ball.placeOnMainTile(i, j, appState.config.SUBDIV || 4);
+      appState.ball.placeOnTile(i, j);
       if (appState.camFollowEnabled) {
         appState.controls.lookAt(appState.ball.mesh.position);
       }
