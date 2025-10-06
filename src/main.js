@@ -3,7 +3,6 @@ import * as THREE from 'three';
 import { showErrorOverlay } from './utils.js';
 import { initCamera, updateCameraBounds } from './camera.js';
 import { initLighting } from './lighting.js';
-import { initSky, updateSky } from './sky.js';
 import { createTerrain } from './terrain.js';
 import { initSculpting, initTapToMove } from './sculpt.js';
 import { initUI, getUiState } from './ui.js';
@@ -55,11 +54,9 @@ async function startApp() {
   appState.dirLight = dirLight;
   appState.lightTarget = lightTarget;
 
-  initSky(scene, renderer);
+  // No sky: build terrain and go
   createTerrain(appState);
-
   updateCameraBounds(appState);
-  updateSky(appState, new THREE.Vector3());
 
   let allowTapMove = true;
   initUI(appState);
@@ -78,7 +75,6 @@ async function startApp() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     updateCameraBounds(appState);
-    updateSky(appState);
   });
 
   renderer.setAnimationLoop(() => {
