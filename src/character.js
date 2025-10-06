@@ -1,114 +1,112 @@
 // file: src/character.js
-// Places a red ball on a specific terrain tile and keeps it pinned to the tile height.
-// Usage:
-//   import BallMarker from './character.js';
-//   const ball = new BallMarker({ three: THREE, scene, terrainMesh, tileI: 10, tileJ: 12 });
-//   ball.placeOnTile(15, 14);  // move later
-//   ball.refresh();            // call after you sculpt to re-snap to height
+// Red ball that follows the main 1×1 tile grid and snaps to mesh height.
+// Works regardless of geometry SUBDIVISIONS.
 
 export default class BallMarker {
   constructor({
     three,
     scene,
     terrainMesh,
+    config,           // <-- pass appState.config
     tileI = 0,
     tileJ = 0,
     radius = 10,
     color = 0xff2b2b,
-    hover = 2,            // small lift above the surface
+    hover = 2,
   }) {
-    if (!three || !scene || !terrainMesh) {
-      throw new Error('[BallMarker] three, scene, and terrainMesh are required.');
+    if (!three || !scene || !terrainMesh || !config) {
+      throw new Error('[BallMarker] three, scene, terrainMesh, and config are required.');
     }
     this.THREE = three;
     this.scene = scene;
     this.terrainMesh = terrainMesh;
+    this.config = config;
 
-    // geometry params (from PlaneGeometry)
-    const p = this._params();
-    this.tileI = this._clamp(tileI, 0, p.wSeg - 1);
-    this.tileJ = this._clamp(tileJ, 0, p.hSeg - 1);
+    this.tileI = tileI;
+    this.tileJ = tileJ;
     this.hover = hover;
 
-    // make mesh
     const geom = new this.THREE.SphereGeometry(radius, 24, 18);
     const mat  = new this.THREE.MeshStandardMaterial({ color, metalness: 0.1, roughness: 0.35 });
     const ball = new this.THREE.Mesh(geom, mat);
     ball.castShadow = true;
     ball.receiveShadow = false;
     ball.name = 'BallMarker';
-
     this.mesh = ball;
     this.scene.add(this.mesh);
 
-    // initial position
     this._snapToTile(this.tileI, this.tileJ);
   }
 
   dispose() {
-    if (this.mesh) {
-      this.scene.remove(this.mesh);
-      this.mesh.geometry?.dispose();
-      if (Array.isArray(this.mesh.material)) this.mesh.material.forEach(m => m.dispose());
-      else this.mesh.material?.dispose();
-      this.mesh = null;
-    }
+    if (!this.mesh) return;
+    this.scene.remove(this.mesh);
+    this.mesh.geometry?.dispose();
+    if (Array.isArray(this.mesh.material)) this.mesh.material.forEach(m => m.dispose());
+    else this.mesh.material?.dispose();
+    this.mesh = null;
   }
 
   placeOnTile(i, j) {
-    const p = this._params();
-    this.tileI = this._clamp(i, 0, p.wSeg - 1);
-    this.tileJ = this._clamp(j, 0, p.hSeg - 1);
+    const { TILES_X, TILES_Y } = this.config;
+    this.tileI = Math.min(TILES_X - 1, Math.max(0, i | 0));
+    this.tileJ = Math.min(TILES_Y - 1, Math.max(0, j | 0));
     this._snapToTile(this.tileI, this.tileJ);
   }
 
   refresh() {
-    // Call after terrain sculpt/geometry updates so the ball re-snaps to height
     this._snapToTile(this.tileI, this.tileJ);
   }
 
-  // --- internals -------------------------------------------------------------
-
-  _params() {
-    const g = this.terrainMesh.geometry;
-    // PlaneGeometry stores creation params here:
-    const width  = g.parameters.width;
-    const height = g.parameters.height;
-    const wSeg   = g.parameters.widthSegments;
-    const hSeg   = g.parameters.heightSegments;
-    return { width, height, wSeg, hSeg, tileW: width / wSeg, tileH: height / hSeg };
-  }
-
-  _clamp(v, a, b) { return Math.min(b, Math.max(a, v)); }
-
-  _tileCornerVertexIndices(i, j) {
-    const { wSeg } = this._params();
-    const vertsPerRow = wSeg + 1;
-    const tl =  j      * vertsPerRow + i;
-    const tr =  tl + 1;
-    const bl = (j + 1) * vertsPerRow + i;
-    const br =  bl + 1;
-    return [tl, tr, bl, br];
-  }
+  // ---- internals ----
 
   _tileCenterLocal(i, j) {
-    const { width, height, tileW, tileH } = this._params();
-    const x = -width  / 2 + (i + 0.5) * tileW;
-    const z = -height / 2 + (j + 0.5) * tileH;
+    const { TILES_X, TILES_Y, TILE_SIZE } = this.config;
+    const W = TILES_X * TILE_SIZE;
+    const H = TILES_Y * TILE_SIZE;
+    const x = -W / 2 + (i + 0.5) * TILE_SIZE;
+    const z = -H / 2 + (j + 0.5) * TILE_SIZE;
     return new this.THREE.Vector3(x, 0, z);
   }
 
-  _sampleTileHeight(i, j) {
-    const pos = this.terrainMesh.geometry.attributes.position.array;
-    const corners = this._tileCornerVertexIndices(i, j);
-    let sum = 0;
-    for (const vi of corners) sum += pos[vi * 3 + 1];
-    return sum / corners.length; // average corner heights
+  // Bilinear height sample on the CURRENT terrain geometry (local x/z -> y)
+  _sampleHeightLocal(x, z) {
+    const g = this.terrainMesh.geometry;
+    const pos = g.attributes.position.array;
+    const { widthSegments, heightSegments, width, height } = g.parameters;
+
+    const u = (x + width / 2) / width;    // 0..1 across geometry
+    const v = (z + height / 2) / height;  // 0..1 across geometry
+
+    const gx = u * widthSegments;
+    const gz = v * heightSegments;
+
+    const ix = Math.floor(gx);
+    const iz = Math.floor(gz);
+    const fx = Math.min(1, Math.max(0, gx - ix));
+    const fz = Math.min(1, Math.max(0, gz - iz));
+
+    const vpr = widthSegments + 1;
+    const Y = (jj, ii) => pos[((jj) * vpr + (ii)) * 3 + 1];
+
+    const x0 = Math.min(widthSegments, Math.max(0, ix));
+    const z0 = Math.min(heightSegments, Math.max(0, iz));
+    const x1 = Math.min(widthSegments, x0 + 1);
+    const z1 = Math.min(heightSegments, z0 + 1);
+
+    const y00 = Y(z0, x0);
+    const y10 = Y(z0, x1);
+    const y01 = Y(z1, x0);
+    const y11 = Y(z1, x1);
+
+    const y0 = y00 * (1 - fx) + y10 * fx;
+    const y1 = y01 * (1 - fx) + y11 * fx;
+    return y0 * (1 - fz) + y1 * fz;
   }
 
   _snapToTile(i, j) {
     const centerLocal = this._tileCenterLocal(i, j);
-    const y = this._sampleTileHeight(i, j) + this.hover;
+    const y = this._sampleHeightLocal(centerLocal.x, centerLocal.z) + this.hover;
     centerLocal.y = y;
     const world = this.terrainMesh.localToWorld(centerLocal.clone());
     this.mesh.position.copy(world);
