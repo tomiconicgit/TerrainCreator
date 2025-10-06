@@ -25,7 +25,6 @@
   <script type="module" src="./bootstrap.js"></script>
 </head>
 <body>
-  <!-- NEW WRAPPER: scene on the left (desktop) / top (mobile), panel alongside -->
   <div id="app">
     <div id="sceneHost" aria-label="Scene area">
       <canvas id="c"></canvas>
@@ -42,29 +41,30 @@
 
       <div class="tabcontent on" id="tab-terrain">
         <div class="section">
-          <div class="row row-split">
-            <label>Grid (tiles)</label>
+
+          <!-- Row 1: Terrain Size (Tiles) + inputs + Generate + Random jitter -->
+          <div class="form-row form-row--grid">
+            <label>Terrain Size (Tiles)</label>
             <div class="input-pair">
               <input id="tilesX" type="number" min="2" max="256" step="1" value="30" inputmode="numeric">
               <span class="times">x</span>
               <input id="tilesY" type="number" min="2" max="256" step="1" value="30" inputmode="numeric">
             </div>
-          </div>
-
-          <div class="grid">
             <button id="genTerrain" class="primary">Generate</button>
             <button id="randomize">Random jitter</button>
           </div>
 
-          <div class="row row-split">
-            <label>Grid outlines</label>
-            <button id="toggleGrid">Grid: On</button>
-          </div>
-        </div>
+          <!-- Row 2: Grid outlines (switch) + Heightmap template + Apply -->
+          <div class="form-row form-row--grid">
+            <div class="form-cell">
+              <label for="gridToggle">Grid outlines</label>
+              <label class="switch">
+                <input id="gridToggle" type="checkbox" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
 
-        <div class="section">
-          <div class="row row-split">
-            <label for="template">Heightmap template</label>
+            <label for="template" class="sr-only">Heightmap template</label>
             <select id="template">
               <option value="Flat">Flat</option>
               <option value="DiamondSquare">DiamondSquare</option>
@@ -78,13 +78,15 @@
             <button id="applyTemplate">Apply</button>
           </div>
 
-          <div class="row row-split">
-            <label>Trees</label>
+          <!-- Row 3: Tree Population ( Scatter ) + input + Apply -->
+          <div class="form-row form-row--grid">
+            <label for="treeCount">Tree Population ( Scatter )</label>
             <div class="input-pair">
               <input id="treeCount" type="number" min="0" max="100000" step="1" value="200" inputmode="numeric">
-              <button id="applyTrees">Populate</button>
             </div>
+            <button id="applyTrees">Apply</button>
           </div>
+
         </div>
       </div>
 
