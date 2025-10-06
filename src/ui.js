@@ -23,7 +23,7 @@ export function initUI(appState) {
     });
   });
 
-  // Terrain size + generate/randomize
+  // --- Terrain Size & actions ---
   const tilesX = document.getElementById('tilesX');
   const tilesY = document.getElementById('tilesY');
   document.getElementById('genTerrain').addEventListener('click', () => {
@@ -31,28 +31,38 @@ export function initUI(appState) {
     appState.config.TILES_Y = Math.max(2, Math.min(256, parseInt(tilesY.value || '30', 10)));
     createTerrain(appState);
     updateCameraBounds(appState);
-    // keep grid switch state consistent
-    gridToggle.checked = !!appState.gridMainVisible;
+    applyGridToggleState();
   });
+
   document.getElementById('randomize').addEventListener('click', () => randomizeTerrain(appState));
 
-  // Heightmap template
+  // --- Grid outlines (switch) ---
+  const gridToggle = document.getElementById('gridToggle');
+  const applyGridToggleState = () => {
+    setMainGridVisible(appState, !!gridToggle.checked);
+  };
+  gridToggle.addEventListener('change', applyGridToggleState);
+  // init state
+  applyGridToggleState();
+
+  // --- Template ---
   const templateSel = document.getElementById('template');
   document.getElementById('applyTemplate').addEventListener('click', () => applyHeightmapTemplate(templateSel.value, appState));
 
-  // Trees
+  // --- Tree population ---
   const treeCount = document.getElementById('treeCount');
   document.getElementById('applyTrees').addEventListener('click', () => {
     const n = Math.max(0, Math.min(100000, parseInt(treeCount.value || '0', 10)));
     populateTrees(n, appState);
   });
 
-  // Sculpt
+  // --- Sculpt ---
   const sculptOn = document.getElementById('sculptOn');
   sculptOn.addEventListener('change', (e) => {
     uiState.sculptOn = e.target.checked;
     appState.controls.enabled = !uiState.sculptOn;
   });
+
   const stepInput = document.getElementById('stepInput');
   const radiusInput = document.getElementById('radiusInput');
   stepInput.addEventListener('change', () => uiState.step = parseFloat(stepInput.value));
@@ -82,14 +92,6 @@ export function initUI(appState) {
   modeRaise.addEventListener('click', () => setMode('raise'));
   modeLower.addEventListener('click', () => setMode('lower'));
   modeSmooth.addEventListener('click', () => setMode('smooth'));
-
-  // Grid toggle (switch)
-  const gridToggle = document.getElementById('gridToggle');
-  const applyGridState = () => setMainGridVisible(appState, !!gridToggle.checked);
-  gridToggle.addEventListener('change', applyGridState);
-  // init state
-  gridToggle.checked = appState.gridMainVisible ?? true;
-  applyGridState();
 
   // PWA install prompt
   let promptEvt = null;
