@@ -3,21 +3,21 @@ import * as THREE from 'three';
 import { dispose } from './utils.js';
 import BallMarker from './character.js';
 
-// main grid helper only (no small sub-grid)
-let edgesHelperMain  = null;
-const SUBDIVISIONS = 4;
+// MAIN grid helper only
+let edgesHelperMain = null;
+const SUBDIVISIONS = 4; // keep sculpt fidelity; grid lines are drawn separately per 1x1 tile
 
-// Simple, no-image material (vertex colors enabled)
+// Simple lit material (uses vertex colors)
 function makeSimpleMaterial() {
   return new THREE.MeshStandardMaterial({
-    color: 0xffffff,          // multiplied by vertex colors
+    color: 0xffffff,
     metalness: 0.05,
     roughness: 0.9,
-    vertexColors: true
+    vertexColors: true,
   });
 }
 
-function setAllVertexColors(geom, colorHex = 0xD2B48C /* sandy tan */) {
+function setAllVertexColors(geom, colorHex = 0xD2B48C) {
   const col = new THREE.Color(colorHex);
   const { widthSegments, heightSegments } = geom.parameters;
   const vertexCount = (widthSegments + 1) * (heightSegments + 1);
@@ -30,7 +30,7 @@ function setAllVertexColors(geom, colorHex = 0xD2B48C /* sandy tan */) {
   geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 }
 
-// Build main (big tile) grid as a separate line set
+// Build ONLY the big 1x1 tile grid (red)
 function rebuildMainGrid(terrainGroup, config) {
   if (!terrainGroup) return;
   if (edgesHelperMain) {
@@ -44,14 +44,14 @@ function rebuildMainGrid(terrainGroup, config) {
   const H = TILES_Y * TILE_SIZE;
 
   const verts = [];
-  const y = 0.5; // slightly above surface to reduce z-fighting
+  const y = 0.5; // lift slightly above terrain to avoid z-fighting
 
-  // vertical lines (columns)
+  // Vertical lines
   for (let i = 0; i <= TILES_X; i++) {
     const x = -W / 2 + i * TILE_SIZE;
     verts.push(x, y, -H / 2,  x, y,  H / 2);
   }
-  // horizontal lines (rows)
+  // Horizontal lines
   for (let j = 0; j <= TILES_Y; j++) {
     const z = -H / 2 + j * TILE_SIZE;
     verts.push(-W / 2, y, z,  W / 2, y, z);
@@ -59,19 +59,17 @@ function rebuildMainGrid(terrainGroup, config) {
 
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-  const m = new THREE.LineBasicMaterial({ color: 0xff4d4d, transparent: true, opacity: 0.7 });
+  const m = new THREE.LineBasicMaterial({ color: 0xff4d4d, transparent: true, opacity: 0.9 });
   edgesHelperMain = new THREE.LineSegments(g, m);
   edgesHelperMain.renderOrder = 2;
   terrainGroup.add(edgesHelperMain);
 }
 
-// Public: toggle visibility for the main grid
 export function setMainGridVisible(appState, visible) {
   if (edgesHelperMain) edgesHelperMain.visible = !!visible;
   appState.gridMainVisible = !!visible;
 }
 
-// Rebuild the main grid and reapply current visibility
 function rebuildGrid(appState) {
   const { terrainGroup, config } = appState;
   rebuildMainGrid(terrainGroup, config);
@@ -88,8 +86,9 @@ export function createTerrain(appState) {
   dispose(appState.treesGroup);
   appState.treesGroup = null;
 
-  const widthSegments = TILES_X * SUBDIVISIONS;
+  const widthSegments  = TILES_X * SUBDIVISIONS;
   const heightSegments = TILES_Y * SUBDIVISIONS;
+
   const geom = new THREE.PlaneGeometry(W, H, widthSegments, heightSegments);
   geom.rotateX(-Math.PI / 2);
 
@@ -97,7 +96,6 @@ export function createTerrain(appState) {
   const mesh = new THREE.Mesh(geom, mat);
   mesh.receiveShadow = true;
 
-  // Vertex colors (simple sand color everywhere)
   setAllVertexColors(geom, 0xD2B48C);
 
   const terrainGroup = new THREE.Group();
@@ -105,20 +103,18 @@ export function createTerrain(appState) {
   terrainGroup.add(mesh);
   scene.add(terrainGroup);
 
-  appState.terrainGroup = terrainGroup;
-  appState.terrainMesh = mesh;
-  appState.terrainMaterial = mat;
+  appState.terrainGroup   = terrainGroup;
+  appState.terrainMesh    = mesh;
+  appState.terrainMaterial= mat;
 
-  // Build main outline and apply current setting
   if (appState.gridMainVisible == null) appState.gridMainVisible = true;
   rebuildGrid(appState);
 
   const ballRadius = Math.max(6, Math.min(TILE_SIZE * 0.45, CHAR_HEIGHT_UNITS * 0.35));
-  if (appState.ball) appState.ball.dispose();
-
+  appState.ball?.dispose();
   appState.ball = new BallMarker({
     three: THREE,
-    scene: scene,
+    scene,
     terrainMesh: mesh,
     tileI: Math.floor(TILES_X / 3),
     tileJ: Math.floor(TILES_Y / 3),
@@ -131,19 +127,16 @@ export function createTerrain(appState) {
 export function randomizeTerrain(appState) {
   if (!appState.terrainMesh) return;
   const arr = appState.terrainMesh.geometry.attributes.position.array;
-  for (let i = 1; i < arr.length; i += 3) {
-    arr[i] += (Math.random() - 0.5) * 2.5;
-  }
+  for (let i = 1; i < arr.length; i += 3) arr[i] += (Math.random() - 0.5) * 2.5;
   appState.terrainMesh.geometry.attributes.position.needsUpdate = true;
   appState.terrainMesh.geometry.computeVertexNormals();
   rebuildGrid(appState);
-  if (appState.ball) appState.ball.refresh();
+  appState.ball?.refresh();
 }
 
 export function applyHeightmapTemplate(name, appState) {
   if (!appState.terrainMesh) return;
   const { terrainMesh, ball } = appState;
-
   const { widthSegments, heightSegments } = terrainMesh.geometry.parameters;
 
   const pos = terrainMesh.geometry.attributes.position.array;
@@ -172,7 +165,7 @@ export function applyHeightmapTemplate(name, appState) {
   terrainMesh.geometry.attributes.position.needsUpdate = true;
   terrainMesh.geometry.computeVertexNormals();
   rebuildGrid(appState);
-  if (ball) ball.refresh();
+  ball?.refresh();
 }
 
 // --- noise helpers (unchanged) ---
