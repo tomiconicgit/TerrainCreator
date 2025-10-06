@@ -1,7 +1,7 @@
 // file: src/terrain.js
 import * as THREE from 'three';
 import { dispose } from './utils.js';
-import BallMarker from './character.js';
+import CubeMarker from './character.js';
 
 // how many terrain-geometry segments per 1×1 tile
 const SUBDIVISIONS = 4;
@@ -91,7 +91,10 @@ function buildMainGrid(appState) {
   const segsY = TILES_Y * SUBDIVISIONS;
 
   // pair-per-segment for both directions
-  const segmentsCount = (TILES_X * segsY) + (TILES_Y * segsX) + segsY + segsX; // includes edges (i==0..TILES_X / j==0..TILES_Y)
+  const segmentsCount =
+    (TILES_X * segsY) +       // verticals along all columns
+    (TILES_Y * segsX) +       // horizontals along all rows
+    segsY + segsX;            // outer frame edges
   const floats = segmentsCount * 2 /*points*/ * 3 /*xyz*/;
 
   const geom = new THREE.BufferGeometry();
@@ -120,7 +123,7 @@ export function refreshMainGrid(appState) {
   const segsX = TILES_X * SUBDIVISIONS;
   const segsY = TILES_Y * SUBDIVISIONS;
 
-  const lift = 0.6;
+  const lift = 0.6; // float above surface to avoid z-fighting
   let p = 0;
 
   // vertical lines (constant x, marching in z)
@@ -204,17 +207,19 @@ export function createTerrain(appState) {
   buildMainGrid(appState);
   setMainGridVisible(appState, appState.gridMainVisible ?? true);
 
-  const ballRadius = Math.max(6, Math.min(TILE_SIZE * 0.45, CHAR_HEIGHT_UNITS * 0.35));
+  // Spawn the cube marker
+  const cubeSize = Math.max(10, Math.min(TILE_SIZE * 0.6, CHAR_HEIGHT_UNITS * 0.5));
   appState.ball?.dispose();
-  appState.ball = new BallMarker({
+  appState.ball = new CubeMarker({
     three: THREE,
     scene,
     terrainMesh: mesh,
+    config: appState.config,
     tileI: Math.floor(TILES_X / 3),
     tileJ: Math.floor(TILES_Y / 3),
-    radius: ballRadius,
+    size:  cubeSize,
     color: 0xff2b2b,
-    config: appState.config,
+    hover: 0, // set small positive to add micro gap if wanted
   });
 }
 
