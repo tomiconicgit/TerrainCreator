@@ -1,38 +1,68 @@
 :root{
-  --bg:#0c0f14; --fg:#dbe3f1; --muted:#93a0b5; --accent:#00adff;
-  --panel-bg:#121720; --panel-border:#1f2a3a; --panel-shadow:0 8px 24px rgba(0,0,0,.35);
-  --safe-top:env(safe-area-inset-top); --safe-bottom:env(safe-area-inset-bottom);
-  --safe-left:env(safe-area-inset-left); --safe-right:env(safe-area-inset-right);
+  /* Godot-ish palette */
+  --bg:#0e141b;            /* app background */
+  --fg:#e6edf5;            /* primary text */
+  --muted:#9aa9bd;         /* secondary text */
+  --accent:#63b3ff;        /* action blue */
+  --accent-strong:#2fa0ff;
+
+  --panel-bg:#151c24;      /* panel surface */
+  --panel-elev:#0f1620;    /* tab strip / inputs */
+  --panel-border:#2a3441;  /* strokes */
+  --panel-shadow:0 6px 18px rgba(0,0,0,.35);
+
+  --safe-top:env(safe-area-inset-top);
+  --safe-bottom:env(safe-area-inset-bottom);
+  --safe-left:env(safe-area-inset-left);
+  --safe-right:env(safe-area-inset-right);
+
+  /* Sizing scales (desktop default) */
+  --radius:8px;
+  --radius-lg:10px;
+  --h-field:38px;
+  --h-btn:38px;
+  --pad:12px;
+  --gap:10px;
+  --tab-h:42px;
+  --font:14px;
+  --font-sm:12px;
+  --font-lg:15px;
 }
 
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);
-  font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
-
-/* ===== LAYOUT WRAPPER ===================================================== */
-#app{
-  height:100svh; /* full viewport */
-  display:grid;
-  grid-template-areas:
-    "scene"
-    "panel";
-  grid-template-rows: 55svh 1fr; /* MOBILE default: scene top ~55% */
-  grid-template-columns: 1fr;
-  gap:0;
-  padding-left:max(8px,var(--safe-left));
-  padding-right:max(8px,var(--safe-right));
+html,body{
+  height:100%;margin:0;background:var(--bg);color:var(--fg);
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial
 }
 
-/* Desktop: side-by-side */
-@media (min-width: 900px){
+/* ===== LAYOUT ============================================================= */
+/* Desktop first: scene left, flush panel right */
+#app{
+  height:100svh;
+  display:grid;
+  grid-template-areas:"scene panel";
+  grid-template-rows:100svh;
+  grid-template-columns:minmax(560px,1fr) minmax(380px,36vw);
+  gap:0;
+  /* no side padding on desktop so panel is FLUSH */
+}
+
+/* Mobile: stack with scene top (~55%) then panel.
+   Add safe-area padding only on mobile. */
+@media (max-width: 899.98px){
   #app{
-    grid-template-areas:"scene panel";
-    grid-template-rows: 100svh;
-    grid-template-columns: minmax(520px, 1fr) minmax(360px, 36vw);
+    grid-template-areas:
+      "scene"
+      "panel";
+    grid-template-rows:55svh 1fr;
+    grid-template-columns:1fr;
+    padding-left:max(8px,var(--safe-left));
+    padding-right:max(8px,var(--safe-right));
+    gap:8px;
   }
 }
 
-/* ===== SCENE HOST + CANVAS ============================================== */
+/* ===== SCENE ============================================================= */
 #sceneHost{
   grid-area:scene;
   position:relative;
@@ -50,91 +80,134 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);
   position:relative;
   z-index:10;
   background:var(--panel-bg);
-  border:1px solid var(--panel-border);
-  border-radius:16px;
-  box-shadow:var(--panel-shadow);
-  overflow:hidden;
-  display:flex; flex-direction:column;
+  border-left:1px solid var(--panel-border);     /* flush seam */
+  border-right:0; border-top:0; border-bottom:0;
+  border-radius:0;                                /* FLUSH on desktop */
+  box-shadow:none;
+  display:flex; flex-direction:column; min-width:320px;
 }
 
-/* When panel is below scene (mobile), give top margin; when right (desktop) stretch full height */
+/* When stacked (mobile), make it a card with radius/shadow */
 @media (max-width: 899.98px){
-  #panel.card { margin-top: 8px; min-height: 40svh; }
-}
-@media (min-width: 900px){
-  #panel.card { height: calc(100svh - 0px); }
+  #panel.card{
+    border:1px solid var(--panel-border);
+    border-radius:var(--radius);
+    box-shadow:var(--panel-shadow);
+    min-height:40svh;
+  }
 }
 
-/* Tabs */
+/* ===== TABS =============================================================== */
 #panel .tabs{
-  height:48px; display:grid; grid-template-columns:repeat(5,1fr);
-  border-bottom:1px solid var(--panel-border); background:#0f1621;
+  height:var(--tab-h);
+  display:grid; grid-template-columns:repeat(5,1fr);
+  border-bottom:1px solid var(--panel-border);
+  background:var(--panel-elev);
 }
 #panel .tab{
-  min-height:48px; padding:0 8px; background:transparent; border:0;
-  color:var(--muted); font-weight:700; font-size:15px;
+  min-height:var(--tab-h);
+  padding:0 10px;
+  background:transparent; border:0;
+  color:var(--muted);
+  font-weight:600; font-size:var(--font);
+  position:relative;
 }
-#panel .tab.on{ color:var(--fg); background:#0b1220; }
-#panel .tab:active{ transform:translateY(1px); }
+#panel .tab.on{
+  color:var(--fg);
+}
+#panel .tab.on::after{
+  content:""; position:absolute; left:8px; right:8px; bottom:0;
+  height:2px; background:var(--accent);
+}
 
-/* Tab content scrolls */
+/* ===== TAB CONTENT ======================================================== */
 #panel .tabcontent{
-  display:none; flex:1 1 auto; overflow:auto; padding:12px;
+  display:none; flex:1 1 auto; overflow:auto; padding:var(--pad);
   -webkit-overflow-scrolling:touch;
 }
 #panel .tabcontent.on{ display:block; }
-.section{ margin-bottom:12px; }
+.section{ margin-bottom:var(--pad); }
 .section.muted{ color:var(--muted); }
-.row{ display:flex; align-items:center; gap:12px; margin:12px 0; }
-.row-split{ justify-content:space-between; }
-label{ color:var(--muted); font-size:14px; }
 
-/* Inputs */
+.row{ display:flex; align-items:center; gap:var(--gap); margin:var(--pad) 0; }
+.row-split{ justify-content:space-between; }
+label{ color:var(--muted); font-size:var(--font); }
+
+/* ===== FIELDS ============================================================= */
 .input-pair{ display:flex; align-items:center; gap:10px; }
-input[type="number"], input[type="text"], input[type="decimal"]{
-  width:108px; padding:10px 12px; border-radius:12px; border:1px solid var(--panel-border);
-  background:#0f1621; color:var(--fg); font-size:16px; appearance:none;
+input[type="number"], input[type="text"], input[type="decimal"], select{
+  height:var(--h-field); min-width:108px;
+  padding:0 10px; border-radius:6px;
+  border:1px solid var(--panel-border);
+  background:var(--panel-elev); color:var(--fg); font-size:var(--font);
+  appearance:none;
 }
+select{ min-width:140px; }
 .times{ color:var(--muted); }
 input[type=number]::-webkit-outer-spin-button,
 input[type=number]::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
 input[type=number]{ -moz-appearance:textfield; }
 
-/* Spinners */
+/* Spinner (stepper) */
 .spinner{ display:flex; align-items:center; gap:10px; }
-.spinner input{ width:104px; padding:10px 12px; border-radius:12px; border:1px solid var(--panel-border);
-  background:#0f1621; color:var(--fg); text-align:center; font-size:16px; }
+.spinner input{
+  width:104px; height:var(--h-field);
+  padding:0 10px; border-radius:6px; border:1px solid var(--panel-border);
+  background:var(--panel-elev); color:var(--fg); text-align:center; font-size:var(--font);
+}
 .spinner button{
-  width:44px; height:44px; border-radius:12px; border:1px solid var(--panel-border);
-  background:#18202d; color:var(--fg); font-weight:800; font-size:18px;
+  width:var(--h-field); height:var(--h-field);
+  border-radius:6px; border:1px solid var(--panel-border);
+  background:#17202b; color:var(--fg); font-weight:800; font-size:16px;
 }
 
-/* Buttons */
+/* ===== BUTTONS ============================================================ */
 button,.pill{
-  min-height:44px; padding:10px 14px; border-radius:12px; border:1px solid var(--panel-border);
-  background:#18202d; color:var(--fg); font-weight:600; font-size:16px;
+  height:var(--h-btn); min-height:var(--h-btn);
+  padding:0 14px; border-radius:6px;
+  border:1px solid var(--panel-border);
+  background:#17202b; color:var(--fg); font-weight:600; font-size:var(--font);
 }
-button.primary{ background:linear-gradient(180deg,#00adff,#007ee0); border-color:#006cbf; color:#fff; }
+button.primary{
+  background:var(--accent); color:#051320; border-color:#2b7fc4;
+}
+button.primary:hover{ background:var(--accent-strong); }
+button:disabled{ opacity:.55; }
 button.toggle.on{ outline:2px solid var(--accent); outline-offset:0; }
 button:active,.pill:active{ transform:translateY(1px); }
 
-/* Grids */
+/* 2-col button grid */
 .grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 
-/* Switch */
-.switch{ position:relative; display:inline-block; width:56px; height:32px; }
+/* ===== SWITCH ============================================================ */
+.switch{ position:relative; display:inline-block; width:56px; height:30px; }
 .switch input{ display:none; }
-.slider{ position:absolute; inset:0; background:#2a2f3a; border-radius:999px; transition:.2s; }
-.slider:before{
-  content:""; position:absolute; width:26px; height:26px; left:3px; top:3px; background:#fff; border-radius:50%; transition:.2s;
+.slider{
+  position:absolute; inset:0; background:#223041; border-radius:999px;
+  border:1px solid var(--panel-border); transition:.18s;
 }
-.switch input:checked + .slider{ background:#1f8ae6; }
-.switch input:checked + .slider:before{ transform:translateX(24px); }
+.slider:before{
+  content:""; position:absolute; width:22px; height:22px; left:3px; top:3px;
+  background:#fff; border-radius:50%; transition:.18s; box-shadow:0 1px 2px rgba(0,0,0,.35);
+}
+.switch input:checked + .slider{ background:var(--accent); }
+.switch input:checked + .slider:before{ transform:translateX(26px); }
 
-/* Hints / touch */
-.hint{ margin:8px 4px 0; color:var(--muted); font-size:12px; }
-@media (hover:none) and (pointer:coarse){
-  .tab{ font-size:16px; }
-  .grid{ gap:12px; }
-  .row{ gap:14px; }
+/* ===== HINTS / TOUCH ===================================================== */
+.hint{ margin:6px 2px 0; color:var(--muted); font-size:var(--font-sm); }
+
+/* ===== RESPONSIVE SCALE (mobile) ========================================= */
+@media (max-width: 899.98px){
+  :root{
+    --radius:10px;
+    --radius-lg:12px;
+    --h-field:44px;
+    --h-btn:44px;
+    --pad:12px;
+    --gap:12px;
+    --tab-h:48px;
+    --font:15px;
+    --font-sm:13px;
+    --font-lg:16px;
+  }
 }
