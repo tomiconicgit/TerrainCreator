@@ -30,7 +30,6 @@ async function startApp() {
       CHAR_HEIGHT_UNITS: 32 * 1.0,
       TREE_MIN_RATIO: 10 / 6,
       TREE_MAX_RATIO: 15 / 6,
-      SUBDIV: 4, // 🔑 sub-tiles per big tile edge
     }
   };
 
@@ -55,7 +54,7 @@ async function startApp() {
   appState.dirLight = dirLight;
   appState.lightTarget = lightTarget;
 
-  // Build terrain
+  // No sky: build terrain and go
   createTerrain(appState);
   updateCameraBounds(appState);
 
@@ -82,7 +81,7 @@ async function startApp() {
     if (appState.camFollowEnabled && appState.ball?.mesh) {
       appState.controls.lookAt(appState.ball.mesh.position);
     }
-    controls.update();
+    appState.controls.update();
     renderer.render(scene, camera);
   });
 }
