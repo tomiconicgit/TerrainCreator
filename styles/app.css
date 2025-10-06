@@ -4,7 +4,7 @@
   --muted: #93a0b5;
   --accent: #00adff;
 
-  --panel-bg: #121720;   /* solid, no transparency */
+  --panel-bg: #121720;
   --panel-border: #1f2a3a;
   --panel-shadow: 0 8px 24px rgba(0,0,0,.35);
 
@@ -12,36 +12,56 @@
   --safe-bottom: env(safe-area-inset-bottom);
   --safe-left: env(safe-area-inset-left);
   --safe-right: env(safe-area-inset-right);
+
+  /* layout breakpoints */
+  --desktop-break: 900px;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: rgba(0,0,0,0); }
-html, body {
-  height: 100%;
-  margin: 0;
-  background: var(--bg);
-  color: var(--fg);
+html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
   overscroll-behavior: contain;
+}
+
+/* --- New app layout container --- */
+#app {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-areas:
+    "scene"
+    "panel";
+  grid-template-rows: 55vh 1fr;   /* mobile-first: scene on top, panel bottom */
+  grid-template-columns: 1fr;
   padding-left:  max(8px, var(--safe-left));
   padding-right: max(8px, var(--safe-right));
 }
 
-/* Canvas full screen behind everything */
+/* Scene host controls canvas size */
+#sceneHost {
+  grid-area: scene;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* Canvas fills its host (no fixed inset anymore) */
 #c {
-  position: fixed;
+  position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
   outline: none;
   touch-action: none;
   z-index: 0;
 }
 
-/* ===== Removed the topbar (if present, keep hidden) ===== */
-#topbar { display: none !important; }
-
-/* ===== Bottom panel with tabs on TOP ===== */
+/* Panel: mobile bottom, fixed height via grid row */
 #panel.card {
-  position: fixed;
-  left: 8px; right: 8px; bottom: calc(8px + var(--safe-bottom));
+  grid-area: panel;
+  position: relative;
   z-index: 10;
   pointer-events: auto;
 
@@ -52,9 +72,8 @@ html, body {
   padding: 0;
   overflow: hidden;
 
+  /* keep internal sizing from your original */
   --tabbar-h: 48px;
-  --panel-h: clamp(220px, 38vh, 360px);
-  height: var(--panel-h);
 }
 
 /* Tab bar docked to TOP of panel */
@@ -91,14 +110,12 @@ html, body {
 }
 #panel .tabcontent.on { display: block; }
 
-/* ===== Form controls ===== */
+/* ===== Form controls (unchanged) ===== */
 .section { margin-bottom: 12px; }
 .section.muted { color: var(--muted); }
-
 .row { display:flex; align-items:center; gap:12px; margin:12px 0; }
 .row-split { justify-content: space-between; }
 label { color: var(--muted); font-size: 14px; }
-
 .input-pair { display:flex; align-items:center; gap:10px; }
 
 input[type="number"], input[type="text"], input[type="decimal"] {
@@ -108,7 +125,7 @@ input[type="number"], input[type="text"], input[type="decimal"] {
   border: 1px solid var(--panel-border);
   background: #0f1621;
   color: var(--fg);
-  font-size: 16px; /* prevent iOS zoom */
+  font-size: 16px;
   -webkit-appearance: none;
   appearance: none;
 }
@@ -144,12 +161,7 @@ button, .pill {
   font-size: 16px;
 }
 button:active, .pill:active { transform: translateY(1px); }
-
-button.primary {
-  background: linear-gradient(180deg, #00adff, #007ee0);
-  border-color: #006cbf;
-  color: white;
-}
+button.primary { background: linear-gradient(180deg, #00adff, #007ee0); border-color: #006cbf; color: white; }
 button.toggle.on { outline: 2px solid var(--accent); outline-offset: 0; }
 
 /* Grids */
@@ -158,14 +170,8 @@ button.toggle.on { outline: 2px solid var(--accent); outline-offset: 0; }
 /* Sculpt switch */
 .switch { position: relative; display: inline-block; width: 56px; height: 32px; }
 .switch input { display:none; }
-.slider {
-  position: absolute; cursor: pointer; inset: 0; background:#2a2f3a;
-  border-radius: 999px; transition: .2s;
-}
-.slider:before {
-  content:""; position:absolute; width:26px; height:26px; left:3px; top:3px;
-  background:#fff; border-radius:50%; transition:.2s;
-}
+.slider { position: absolute; cursor: pointer; inset: 0; background:#2a2f3a; border-radius: 999px; transition: .2s; }
+.slider:before { content:""; position:absolute; width:26px; height:26px; left:3px; top:3px; background:#fff; border-radius:50%; transition:.2s; }
 .switch input:checked + .slider { background: #1f8ae6; }
 .switch input:checked + .slider:before { transform: translateX(24px); }
 
@@ -188,16 +194,35 @@ button.toggle.on { outline: 2px solid var(--accent); outline-offset: 0; }
   gap: 10px;
   margin: 12px 0;
 }
-
 .texture-palette .tex-btn {
   font-size: 15px;
   background-color: #18202d;
   border-color: var(--panel-border);
 }
-
-/* Style for the selected texture button */
 .texture-palette .tex-btn.on {
   outline: 2px solid var(--accent);
   outline-offset: 0;
   background: #2a3a50;
+}
+
+/* ===== Desktop layout: scene left (> half), panel fixed right ===== */
+@media (min-width: var(--desktop-break)) {
+  #app {
+    grid-template-areas: "scene panel";
+    grid-template-rows: 1fr;
+    grid-template-columns: minmax(640px, 58vw) 1fr; /* left stays just over half */
+    padding-left:  max(12px, var(--safe-left));
+    padding-right: max(12px, var(--safe-right));
+  }
+
+  #sceneHost {
+    border-radius: 14px;
+  }
+
+  #panel.card {
+    position: sticky; /* stick within grid column */
+    top: max(8px, var(--safe-top));
+    height: calc(100vh - max(8px, var(--safe-top)) - max(8px, var(--safe-bottom)));
+    border-radius: 16px;
+  }
 }
