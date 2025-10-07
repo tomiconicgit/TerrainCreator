@@ -7,6 +7,8 @@ import { createTerrain, setMainGridVisible } from './terrain.js';
 import { initSculpting, initTapToMove } from './sculpt.js';
 import { initUI, getUiState } from './ui.js';
 import initNavLock from './navlock.js';
+
+// NEW: test sphere + texture test
 import { createTestSphere } from './testSphere.js';
 import { initTextureTest } from './textureTest.js';
 
@@ -19,7 +21,7 @@ async function startApp() {
     terrainGroup: null, terrainMesh: null, terrainMaterial: null,
     treesGroup: null, ball: null,
     gridLines: null,
-    testSphere: null, // <-- demo sphere
+    testSphere: null,          // <= sphere for texture tests
     camFollowEnabled: true,
     config: {
       TILES_X: 30, TILES_Y: 30, TILE_SIZE: 32,
@@ -61,27 +63,32 @@ async function startApp() {
   appState.dirLight = dirLight;
   appState.lightTarget = lightTarget;
 
-  // Core features
+  // Terrain & UI
   createTerrain(appState);
   initUI(appState);
   initSculpting(appState, getUiState);
 
-  // HUD (tap-to-move + grid)
+  // TEST SPHERE for texture trials
+  createTestSphere(appState);
+
+  // Texture tab interactions (select texture, paint to sphere)
+  initTextureTest(appState);
+
   let allowTapMove = true;
-  initNavLock({ zIndex: 10000, offset: 10 });
-  window.addEventListener('tc:navlock', (e) => { allowTapMove = !(e?.detail?.paused); });
-  window.addEventListener('tc:gridtoggle', (e) => { setMainGridVisible(appState, !!e?.detail?.on); });
+  initTapToMove(appState, getUiState, () => allowTapMove);
 
-  // Test sphere + texture-paint test mode (kept out of main.js)
-  appState.testSphere = createTestSphere(appState);
-  const painting = initTextureTest(appState); // returns { isActive() }
-
-  // Tap-to-move is disabled during paint selection
-  initTapToMove(appState, getUiState, () => allowTapMove && !painting.isActive());
+  try {
+    initNavLock({ zIndex: 10000, offset: 10 });
+    window.addEventListener('tc:navlock', (e) => { allowTapMove = !(e?.detail?.paused); });
+    window.addEventListener('tc:gridtoggle', (e) => { setMainGridVisible(appState, !!e?.detail?.on); });
+  } catch (_) {}
 
   sizeRendererToHost();
   updateCameraBounds(appState);
-  window.addEventListener('resize', () => { sizeRendererToHost(); updateCameraBounds(appState); });
+  window.addEventListener('resize', () => {
+    sizeRendererToHost();
+    updateCameraBounds(appState);
+  });
 
   renderer.setAnimationLoop(() => {
     if (appState.camFollowEnabled && appState.ball?.mesh) {
