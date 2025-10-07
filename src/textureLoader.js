@@ -2,52 +2,69 @@
 import * as THREE from 'three';
 import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
 
-const cache = new Map();
-
-export async function getMaterial(name, appState) {
-  if (cache.has(name)) return cache.get(name);
-
-  if (name !== 'sand') throw new Error(`Unknown texture set: ${name}`);
-
-  const root = 'assets/textures/sand/';
+export async function loadSandMaterial(renderer) {
   const texLoader = new THREE.TextureLoader();
   const exrLoader = new EXRLoader();
 
-  const [albedo, roughness, normalEXR, displacement] = await Promise.all([
-    texLoader.loadAsync(root + 'sand-diffuse.jpg'),
-    texLoader.loadAsync(root + 'sand-roughness.jpg'),
-    exrLoader.loadAsync(root + 'sand-normal.exr'),
-    texLoader.loadAsync(root + 'sand-displacement.png'),
+  const maxAniso = renderer?.capabilities?.getMaxAnisotropy?.() || 1;
+
+  const [colorMap, roughnessMap, normalEXR, dispMap] = await Promise.all([
+    loadTex(texLoader, 'assets/textures/sand/sand-diffuse.jpg', (t) => {
+      t.colorSpace = THREE.SRGBColorSpace; // color texture
+      t.anisotropy = maxAniso;
+      wrapRepeat(t);
+    }),
+    loadTex(texLoader, 'assets/textures/sand/sand-roughness.jpg', (t) => {
+      // non-color data
+      t.colorSpace = THREE.NoColorSpace;
+      wrapRepeat(t);
+    }),
+    loadEXR(exrLoader, 'assets/textures/sand/sand-normal.exr', (t) => {
+      t.colorSpace = THREE.NoColorSpace;   // normal map is data
+      wrapRepeat(t);
+    }),
+    loadTex(texLoader, 'assets/textures/sand/sand-displacement.png', (t) => {
+      t.colorSpace = THREE.NoColorSpace;   // height map is data
+      wrapRepeat(t);
+    })
   ]);
 
-  const maxAniso = appState.renderer.capabilities.getMaxAnisotropy?.() || 1;
-
-  albedo.colorSpace = THREE.SRGBColorSpace;
-  [albedo, roughness, normalEXR, displacement].forEach(t => {
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.anisotropy = maxAniso;
-  });
-  roughness.colorSpace = THREE.NoColorSpace;
-  normalEXR.colorSpace = THREE.NoColorSpace;
-  normalEXR.flipY = false;
-  displacement.colorSpace = THREE.NoColorSpace;
-
-  // modest tiling on sphere
-  const u = 2, v = 1.5;
-  [albedo, roughness, normalEXR, displacement].forEach(t => t.repeat.set(u, v));
-
   const mat = new THREE.MeshStandardMaterial({
-    map: albedo,
-    roughnessMap: roughness,
-    normalMap: normalEXR,
-    displacementMap: displacement,
-    displacementScale: 0.06,
-    displacementBias: 0,
+    map: colorMap || null,
+    roughnessMap: roughnessMap || null,
+    normalMap: normalEXR || null,
+    displacementMap: dispMap || null,
     metalness: 0.0,
     roughness: 1.0,
+    displacementScale: 2.0,    // tweak to taste
+    normalScale: new THREE.Vector2(1.0, 1.0)
   });
-  mat.normalScale.set(1, 1);
 
-  cache.set(name, mat);
   return mat;
+}
+
+// helpers
+function wrapRepeat(t) {
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.needsUpdate = true;
+}
+function loadTex(loader, url, onLoad) {
+  return new Promise((resolve) => {
+    loader.load(
+      url,
+      (t) => { try { onLoad?.(t); } catch {} resolve(t); },
+      undefined,
+      () => resolve(null) // tolerate missing maps
+    );
+  });
+}
+function loadEXR(loader, url, onLoad) {
+  return new Promise((resolve) => {
+    loader.load(
+      url,
+      (t) => { try { onLoad?.(t); } catch {} resolve(t); },
+      undefined,
+      () => resolve(null)
+    );
+  });
 }
