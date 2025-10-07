@@ -1,5 +1,5 @@
 // file: src/texturepaint.js
-// Tap-a-tile texture painting for the main terrain mesh.
+// Per-tile texture painting with albedo + normal + roughness blending.
 //
 // Public API:
 //   const painter = initTexturePainter(appState)
@@ -17,12 +17,10 @@ export default function initTexturePainter(appState) {
   const exrLoader = new EXRLoader();
 
   function loadTex(url, { isColor = false } = {}) {
-    const useEXR = url.toLowerCase().endsWith('.exr');
-    const t = useEXR ? exrLoader.load(url) : texLoader.load(url);
-    // Tiling + sampling
+    const isEXR = url.toLowerCase().endsWith('.exr');
+    const t = isEXR ? exrLoader.load(url) : texLoader.load(url);
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     t.anisotropy = 8;
-    // Correct color spaces
     t.colorSpace = isColor ? THREE.SRGBColorSpace : THREE.NoColorSpace;
     return t;
   }
@@ -33,16 +31,14 @@ export default function initTexturePainter(appState) {
     white.needsUpdate = true;
     return white;
   }
-
   function makeNeutralNormalTex() {
-    // (0.5, 0.5, 1.0) in 8-bit
     const n = new THREE.DataTexture(new Uint8Array([128, 128, 255]), 1, 1, THREE.RGBFormat);
     n.colorSpace = THREE.NoColorSpace;
     n.needsUpdate = true;
     return n;
   }
 
-  // --- Texture sets (albedo/normal/roughness) ------------------------------
+  // ---- Texture sets -------------------------------------------------------
   const tex = {
     sand: {
       albedo: loadTex('assets/textures/sand/sand-diffuse.jpg', { isColor: true }),
@@ -68,9 +64,9 @@ export default function initTexturePainter(appState) {
 
   const state = {
     activeKey: null,          // 'sand' | 'dryground' | 'sandstone' | 'coastsand' | null
-    maskAttrs: {},            // { sand: BufferAttribute, dryground: ..., sandstone: ..., coastsand: ... }
+    maskAttrs: {},            // per-vertex mask attributes (1 per texture)
     tilesUniform: new THREE.Vector2(1, 1),
-    uvScale: 1.0,             // tiling inside a tile (1 = 1x per tile)
+    uvScale: 1.0,             // tiling inside each big tile
     normalScale: new THREE.Vector2(1, 1),
   };
 
@@ -98,29 +94,26 @@ export default function initTexturePainter(appState) {
     state.maskAttrs.coastsand = ensure('mask4');
   }
 
-  function _ensureUVs(mat) {
-    // Attach a no-op white map if none present (this flips on USE_UV internally)
+  // Ensure the std material compiles UV + normal paths even when no maps were set.
+  function _ensureUVAndNormalPaths(mat) {
     if (!mat.map) {
-      mat.map = makeWhiteTex();
+      mat.map = makeWhiteTex(); // flips on USE_UV in standard chunks
     }
-    // Force normal pipeline availability so we can override its chunk
     if (!mat.normalMap) {
-      mat.normalMap = makeNeutralNormalTex(); // triggers USE_NORMALMAP code path
+      mat.normalMap = makeNeutralNormalTex(); // flips on USE_NORMALMAP + normalmap_pars
       mat.normalScale = state.normalScale.clone();
     }
     mat.defines = mat.defines || {};
-    mat.defines.USE_UV = 1;
-    mat.defines.USE_NORMALMAP = 1;
+    mat.defines.USE_UV = 1;           // belt-and-suspenders to keep <uv_vertex> alive
+    mat.defines.USE_NORMALMAP = 1;    // ensures normal helpers exist for our patch
   }
 
-  // Material hook: blend up to 4 texture sets (albedo + normal + roughness) by per-vertex masks.
   function _hookMaterial(mat) {
-    if (!mat) return;
-    if (mat.userData.__texPaintHooked) return;
+    if (!mat || mat.userData.__texPaintHooked) return;
     mat.userData.__texPaintHooked = true;
-
     mat.vertexColors = true;
-    _ensureUVs(mat);
+
+    _ensureUVAndNormalPaths(mat);
 
     mat.onBeforeCompile = (shader) => {
       shader.defines = shader.defines || {};
@@ -150,7 +143,7 @@ export default function initTexturePainter(appState) {
       shader.uniforms.sandUVScale  = { value: state.uvScale };
       shader.uniforms.uNormalScale = { value: state.normalScale };
 
-      // ---- VERTEX: pass masks to fragment
+      // ---- VERTEX: pass masks
       shader.vertexShader = shader.vertexShader
         .replace(
           '#include <uv_pars_vertex>',
@@ -175,16 +168,15 @@ export default function initTexturePainter(appState) {
            uniform vec2 tiles; uniform float sandUVScale; uniform vec2 uNormalScale;
            varying float vMask1, vMask2, vMask3, vMask4;`
         )
-
-        // ALBEDO: blend into diffuseColor
+        // ALBEDO
         .replace(
           'vec4 diffuseColor = vec4( diffuse, opacity );',
           `vec4 diffuseColor = vec4( diffuse, opacity );
            vec2 tileUV = fract(vUv * tiles) * sandUVScale;
-           vec3 t_sand  = texture2D(sandMap,      tileUV).rgb;
-           vec3 t_dry   = texture2D(dryMap,       tileUV).rgb;
-           vec3 t_stone = texture2D(sandstoneMap, tileUV).rgb;
-           vec3 t_coast = texture2D(coastMap,     tileUV).rgb;
+           vec3 t1 = texture2D(sandMap,      tileUV).rgb;
+           vec3 t2 = texture2D(dryMap,       tileUV).rgb;
+           vec3 t3 = texture2D(sandstoneMap, tileUV).rgb;
+           vec3 t4 = texture2D(coastMap,     tileUV).rgb;
 
            float w1 = clamp(vMask1, 0.0, 1.0);
            float w2 = clamp(vMask2, 0.0, 1.0);
@@ -193,17 +185,15 @@ export default function initTexturePainter(appState) {
            float s  = w1 + w2 + w3 + w4;
 
            if (s > 1e-5) {
-             vec3 blended = (w1*t_sand + w2*t_dry + w3*t_stone + w4*t_coast) / s;
-             diffuseColor.rgb = mix(diffuseColor.rgb, blended, clamp(s, 0.0, 1.0));
+             vec3 blended = (w1*t1 + w2*t2 + w3*t3 + w4*t4) / s;
+             diffuseColor.rgb = blended;
            }`
         )
-
-        // NORMALS: replace the stock normal map application with our blended normal
+        // NORMALS (replace normal map stage)
         .replace(
           '#include <normal_fragment_maps>',
           `{
              vec2 tileUV = fract(vUv * tiles) * sandUVScale;
-
              vec3 n1 = texture2D(sandNorm,      tileUV).xyz * 2.0 - 1.0;
              vec3 n2 = texture2D(dryNorm,       tileUV).xyz * 2.0 - 1.0;
              vec3 n3 = texture2D(sandstoneNorm, tileUV).xyz * 2.0 - 1.0;
@@ -216,20 +206,17 @@ export default function initTexturePainter(appState) {
              float s  = w1 + w2 + w3 + w4;
 
              if (s > 1e-5) {
-               vec3 nMix = (w1*n1 + w2*n2 + w3*n3 + w4*n4) / s;
+               vec3 nMix = normalize((w1*n1 + w2*n2 + w3*n3 + w4*n4) / s);
                nMix.xy *= uNormalScale;
-               // Tangent-space perturbation (Three's helper)
                normal = perturbNormal2Arb( -vViewPosition, normal, nMix );
              }
            }`
         )
-
-        // ROUGHNESS: replace the roughness map sampling with our blended roughness
+        // ROUGHNESS (replace chunk)
         .replace(
           '#include <roughnessmap_fragment>',
           `{
              vec2 tileUV = fract(vUv * tiles) * sandUVScale;
-
              float r1 = texture2D(sandRough,      tileUV).g;
              float r2 = texture2D(dryRough,       tileUV).g;
              float r3 = texture2D(sandstoneRough, tileUV).g;
@@ -243,7 +230,7 @@ export default function initTexturePainter(appState) {
 
              if (s > 1e-5) {
                float rMix = (w1*r1 + w2*r2 + w3*r3 + w4*r4) / s;
-               roughnessFactor *= rMix;
+               roughnessFactor = clamp(rMix, 0.02, 1.0);
              }
            }`
         );
@@ -264,7 +251,7 @@ export default function initTexturePainter(appState) {
     if (sh) sh.uniforms.tiles.value.copy(state.tilesUniform);
   }
 
-  // Map a LOCAL x/z to the containing big 1×1 tile
+  // Map LOCAL x/z to the containing big 1×1 tile
   function _localToTile(localX, localZ) {
     const { TILE_SIZE, TILES_X, TILES_Y } = appState.config;
     const W = TILES_X * TILE_SIZE;
@@ -280,7 +267,7 @@ export default function initTexturePainter(appState) {
     return { i, j };
   }
 
-  // Paint one big tile: set selected mask to 1 and reset others to 0 in that tile region.
+  // Paint one big tile: set the active mask to 1 and others to 0 in that tile region
   function _paintTileActive(i, j) {
     const mesh = appState.terrainMesh;
     if (!mesh || !state.maskAttrs || !state.activeKey) return;
@@ -310,7 +297,6 @@ export default function initTexturePainter(appState) {
     Object.values(state.maskAttrs).forEach(attr => { if (attr) attr.needsUpdate = true; });
   }
 
-  // Clear entire masks
   function _clearAll() {
     Object.values(state.maskAttrs).forEach(attr => {
       if (!attr) return;
@@ -322,7 +308,7 @@ export default function initTexturePainter(appState) {
   // pointer handler (only when an active texture is selected)
   const ray = new THREE.Raycaster();
   function _onPointerDown(ev) {
-    if (!state.activeKey) return;               // not painting
+    if (!state.activeKey) return;
     if (!appState.terrainMesh) return;
 
     const rect = appState.renderer.domElement.getBoundingClientRect();
