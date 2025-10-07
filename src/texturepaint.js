@@ -13,10 +13,20 @@ const SUBDIVISIONS = 4; // must match terrain.js
 
 export default function initTexturePainter(appState) {
   const loader = new THREE.TextureLoader();
+
+  // Base albedo used when mask==1
   const sandTex = loader.load('assets/textures/sand/sand-diffuse.jpg');
   sandTex.wrapS = sandTex.wrapT = THREE.RepeatWrapping;
   sandTex.colorSpace = THREE.SRGBColorSpace;
   sandTex.anisotropy = 8;
+
+  // Helper: make a 1x1 white texture to force UV pipeline without affecting visuals
+  function makeWhiteTex() {
+    const white = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+    white.colorSpace = THREE.SRGBColorSpace;
+    white.needsUpdate = true;
+    return white;
+  }
 
   const state = {
     activeKey: null,          // 'sand' | null
@@ -42,36 +52,56 @@ export default function initTexturePainter(appState) {
     }
   }
 
+  // Ensure the material has UVs available (otherwise <uv_vertex> doesn’t compile)
+  function _ensureUVs(mat) {
+    // Attach a no-op white map if none present (this flips on USE_UV internally)
+    if (!mat.map) {
+      mat.map = makeWhiteTex();
+    }
+    // Extra safety: make sure the shader sees USE_UV even if implementation changes
+    mat.defines = mat.defines || {};
+    mat.defines.USE_UV = 1;
+  }
+
   // Material hook: mix diffuse with sand albedo based on vMask1.
   function _hookMaterial(mat) {
     if (!mat) return;
-
-    // If this exact material was already hooked, skip.
     if (mat.userData.__texPaintHooked) return;
     mat.userData.__texPaintHooked = true;
 
     mat.vertexColors = true;
+    _ensureUVs(mat);
 
     mat.onBeforeCompile = (shader) => {
+      // ensure the define persists
+      shader.defines = shader.defines || {};
+      shader.defines.USE_UV = 1;
+
       shader.uniforms.sandMap     = { value: sandTex };
       shader.uniforms.tiles       = { value: state.tilesUniform };
       shader.uniforms.sandUVScale = { value: state.uvScale };
 
-      // pass mask1 -> vMask1
+      // Pass mask1 -> vMask1 and make sure UVs exist via the uv chunk
       shader.vertexShader = shader.vertexShader
-        .replace('#include <uv_vertex>',
-                 '#include <uv_vertex>\nattribute float mask1;\nvarying float vMask1;')
-        .replace('#include <begin_vertex>',
-                 '#include <begin_vertex>\n vMask1 = mask1;');
+        .replace(
+          '#include <uv_pars_vertex>',
+          '#include <uv_pars_vertex>\nattribute float mask1;\nvarying float vMask1;'
+        )
+        .replace(
+          '#include <uv_vertex>',
+          '#include <uv_vertex>\n vMask1 = mask1;'
+        );
 
-      // mix in sand where mask is 1
+      // Mix in sand where mask is 1. We sample using (tiled) vUv.
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>',
+        .replace(
+          '#include <common>',
           `#include <common>
            uniform sampler2D sandMap;
            uniform vec2 tiles;
            uniform float sandUVScale;
-           varying float vMask1;`)
+           varying float vMask1;`
+        )
         .replace(
           'vec4 diffuseColor = vec4( diffuse, opacity );',
           `vec4 diffuseColor = vec4( diffuse, opacity );
