@@ -19,7 +19,7 @@ async function startApp() {
     treesGroup: null, ball: null,
     gridLines: null,
     camFollowEnabled: true,
-    painter: null, // texture painter controller
+    painter: null,
     config: {
       TILES_X: 30, TILES_Y: 30, TILE_SIZE: 32,
       MIN_H: -200, MAX_H: 300,
