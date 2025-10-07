@@ -1,12 +1,13 @@
-/* TerrainCreator Bootstrap — three-free + gated launch
-   - Splash with title, % bar, status
+/* TerrainCreator Bootstrap — modern launcher-style gate
+   - Frosted glass card over animated backdrop
+   - Inline SVG logo + title
+   - Progress bar + status
+   - Start Program button (enabled after preflight passes)
    - Error capture (window.onerror, unhandledrejection, console.error)
-   - Modal with full logs + Copy All
-   - Preflight runs WITHOUT touching your vendors
-   - Shows a "Continue" button when checks pass
-   - Only then loads ./src/main.js
-   - If app import fails: bar turns red, modal opens, bootstrap stays on top
-   - Sets window.__tcBootstrapActive flag so your app can suppress its own overlay
+   - Debug modal with full logs + Copy All
+   - Loads ./src/main.js only after clicking Start
+   - If import fails: bar turns red, modal opens, bootstrap stays on top
+   - Sets window.__tcBootstrapActive so app can suppress its own overlay
 */
 (() => {
   const onReady = (fn) =>
@@ -15,80 +16,206 @@
       : fn();
 
   onReady(() => {
-    // mark bootstrap active so app can detect it
     window.__tcBootstrapActive = true;
 
     // ---------- UI ----------
     const root = document.createElement('div');
     root.id = 'tc-bootstrap';
     root.innerHTML = `
-      <div class="wrap">
-        <div class="brand">TerrainCreator</div>
-        <div class="by">by Tom Iconic</div>
+      <div class="bg">
+        <div class="grid"></div>
+        <div class="glow"></div>
+      </div>
 
-        <div class="bar"><div class="fill" style="width:0%"><span class="pct">0%</span></div></div>
-        <div class="status" id="tc-status">Preparing…</div>
-
-        <div class="actions">
-          <button id="tc-continue" class="btn primary" disabled>Continue</button>
+      <div class="card" role="dialog" aria-label="Launcher">
+        <div class="brand">
+          <div class="logo" aria-hidden="true">
+            <!-- Subtle inline SVG mark -->
+            <svg viewBox="0 0 64 64" width="42" height="42" fill="none" stroke="currentColor" stroke-width="2">
+              <defs>
+                <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+                  <stop offset="0" stop-color="#a0c2ff" stop-opacity="1"/>
+                  <stop offset="1" stop-color="#7bd1b8" stop-opacity="1"/>
+                </linearGradient>
+              </defs>
+              <path stroke="url(#g)" d="M4 52 L22 20 L34 36 L44 16 L60 44" />
+              <circle cx="22" cy="20" r="3" fill="url(#g)" />
+              <circle cx="34" cy="36" r="3" fill="url(#g)" />
+              <circle cx="44" cy="16" r="3" fill="url(#g)" />
+              <circle cx="60" cy="44" r="3" fill="url(#g)" />
+            </svg>
+          </div>
+          <div class="titles">
+            <div class="title">TerrainCreator</div>
+            <div class="subtitle">Launcher</div>
+          </div>
         </div>
 
-        <div class="debugline">
-          <button class="debugbtn" id="tc-debug-toggle" aria-label="open errors" title="Show errors">+</button>
-          <span class="debughint">Debug</span>
+        <div class="bar" aria-hidden="true">
+          <div class="fill" style="width:0%">
+            <span class="pct">0%</span>
+          </div>
+        </div>
+        <div class="status" id="tc-status" aria-live="polite">Initializing…</div>
+
+        <div class="actions">
+          <button id="tc-continue" class="btn primary" disabled>
+            Start Program
+          </button>
+          <button id="tc-debug-toggle" class="btn ghost" aria-label="Show errors">Debug</button>
         </div>
       </div>
 
-      <div class="modal hidden" id="tc-modal">
+      <div class="modal hidden" id="tc-modal" aria-modal="true" role="dialog" aria-label="Bootstrap Debugger">
         <div class="modal-card">
           <div class="modal-head">
             <div class="modal-title">Bootstrap Debugger</div>
             <div class="modal-actions">
               <button id="tc-copy" class="btn">Copy All</button>
-              <button id="tc-close" class="btn btn-ghost">Close</button>
+              <button id="tc-close" class="btn ghost">Close</button>
             </div>
           </div>
           <div class="modal-body">
-            <pre id="tc-log"></pre>
+            <pre id="tc-log">No errors captured.</pre>
           </div>
         </div>
       </div>
     `;
+
     const css = document.createElement('style');
     css.textContent = `
-      #tc-bootstrap, #tc-bootstrap * { box-sizing: border-box; }
-      #tc-bootstrap {
-        position: fixed; inset: 0; background: #0c0f14; color: #dbe3f1;
-        display: grid; place-items: center; z-index: 2147483647;
-        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      :root{
+        --bg0:#0c0f13;
+        --card-bg: rgba(22,24,28,0.65);
+        --card-stroke: rgba(255,255,255,0.08);
+        --text:#e9eef5;
+        --muted:#9fb0c4;
+        --accent1:#78b1ff;
+        --accent2:#59d3b0;
+        --bar-track: rgba(255,255,255,0.08);
+        --bar-fill1:#78b1ff;
+        --bar-fill2:#59d3b0;
+        --error1:#ff6767;
+        --error2:#d53a3a;
+        --btn-bg: #2a2f36;
+        --btn-fg: #e9eef5;
+        --btn-ghost: transparent;
+        --btn-ghost-stroke: rgba(255,255,255,0.16);
+        --radius: 16px;
+        --shadow: 0 10px 30px rgba(0,0,0,0.35);
       }
-      #tc-bootstrap .wrap { width: min(520px, 92vw); text-align: center; }
-      .brand { font-size: 28px; font-weight: 800; letter-spacing: .3px; }
-      .by { opacity: .7; margin-top: 2px; margin-bottom: 18px; }
-      .bar { width: 100%; height: 18px; border-radius: 10px; background: #121720; border: 1px solid rgba(255,255,255,0.12); overflow: hidden; }
-      .fill { height: 100%; background: linear-gradient(180deg, #00adff, #007ee0); display:flex; align-items:center; justify-content:flex-end; position:relative; transition: width .25s ease; }
-      .fill .pct { font-size: 11px; padding-right: 6px; color: white; text-shadow: 0 1px 0 rgba(0,0,0,.3); }
-      .status { margin-top: 12px; opacity: .9; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; white-space: pre-line; }
-      .actions { margin-top: 14px; }
-      .btn { padding:8px 12px; border-radius: 10px; border:1px solid rgba(255,255,255,.18); background:#121720; color:#dbe3f1; font-weight:600; }
-      .btn.primary { background: linear-gradient(180deg, #00adff, #007ee0); border-color:#006cbf; color:#fff; }
-      .btn[disabled] { opacity:.5; filter:grayscale(0.2); }
-      .debugline { margin-top: 12px; display:flex; align-items:center; justify-content:center; gap:8px; opacity:.85; }
-      .debugbtn { width:26px; height:26px; border-radius: 999px; border:1px solid rgba(255,255,255,.2); background: transparent; color:#dbe3f1; font-weight:700; }
-      .debugbtn:active { transform: translateY(1px); }
-      .debughint { font-size: 12px; color: #93a0b5; }
-      .errorbar { background: linear-gradient(180deg, #ff4d4d, #d92a2a) !important; }
+      #tc-bootstrap, #tc-bootstrap * { box-sizing:border-box; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+      #tc-bootstrap {
+        position: fixed; inset: 0; z-index: 2147483647;
+        display: grid; place-items: center; color: var(--text);
+        background: var(--bg0);
+        isolation: isolate;
+      }
+      /* Backdrop layers */
+      #tc-bootstrap .bg { position:absolute; inset:0; overflow:hidden; }
+      #tc-bootstrap .grid {
+        position:absolute; inset:-40% -40% -40% -40%;
+        background:
+          radial-gradient(60% 60% at 80% 10%, rgba(121,178,255,0.16), transparent 60%),
+          radial-gradient(50% 50% at 10% 80%, rgba(89,211,176,0.18), transparent 60%),
+          linear-gradient(transparent 24px, rgba(255,255,255,0.06) 25px, transparent 26px),
+          linear-gradient(90deg, transparent 24px, rgba(255,255,255,0.06) 25px, transparent 26px);
+        background-size: 100% 100%, 100% 100%, 50px 50px, 50px 50px;
+        filter: blur(8px);
+        transform: rotate(2deg) scale(1.1);
+        animation: pan 22s linear infinite;
+      }
+      @keyframes pan { from { transform: rotate(2deg) scale(1.1) translateX(0); } to { transform: rotate(2deg) scale(1.1) translateX(-50px); } }
+      #tc-bootstrap .glow{
+        position:absolute; inset:0;
+        background: radial-gradient(40% 30% at 70% 20%, rgba(120,177,255,0.25), transparent 70%),
+                    radial-gradient(30% 30% at 20% 70%, rgba(89,211,176,0.22), transparent 70%);
+        filter: blur(8px);
+        opacity:.7;
+      }
+
+      /* Card */
+      #tc-bootstrap .card{
+        position: relative;
+        width: min(560px, 92vw);
+        border-radius: var(--radius);
+        border: 1px solid var(--card-stroke);
+        background: var(--card-bg);
+        backdrop-filter: blur(14px) saturate(1.1);
+        box-shadow: var(--shadow);
+        padding: 18px 18px 16px;
+      }
+      #tc-bootstrap .brand{
+        display:flex; align-items:center; gap:12px; margin-bottom:12px;
+      }
+      #tc-bootstrap .logo{
+        width:42px; height:42px; display:grid; place-items:center;
+        color:#cbe0ff;
+        filter: drop-shadow(0 1px 6px rgba(120,177,255,0.25));
+      }
+      #tc-bootstrap .titles .title{ font-size:20px; font-weight:800; letter-spacing:.2px; }
+      #tc-bootstrap .titles .subtitle{ font-size:12px; color: var(--muted); margin-top:2px; }
+
+      /* Bar */
+      #tc-bootstrap .bar{
+        width:100%; height:16px; border-radius:10px; background: var(--bar-track);
+        border:1px solid rgba(255,255,255,0.12); overflow:hidden; position:relative;
+      }
+      #tc-bootstrap .fill{
+        height:100%;
+        background: linear-gradient(90deg, var(--bar-fill1), var(--bar-fill2));
+        display:flex; align-items:center; justify-content:flex-end;
+        transition: width .25s ease;
+      }
+      #tc-bootstrap .fill .pct{
+        font-size:11px; padding-right:6px; color:#0c0f13; font-weight:800;
+        text-shadow: 0 1px 0 rgba(255,255,255,0.6);
+      }
+      #tc-bootstrap .fill.errorbar{
+        background: linear-gradient(90deg, var(--error1), var(--error2));
+      }
+      #tc-bootstrap .status{
+        margin-top:10px; font-family: ui-monospace, Menlo, Consolas, monospace;
+        font-size:13px; color: var(--muted);
+        min-height: 18px;
+      }
+
+      /* Actions */
+      #tc-bootstrap .actions{
+        margin-top:14px; display:flex; gap:8px; justify-content:flex-end;
+      }
+      #tc-bootstrap .btn{
+        padding:10px 14px; border-radius:10px;
+        border:1px solid var(--btn-ghost-stroke);
+        background: var(--btn-bg); color: var(--btn-fg);
+        font-weight:700; cursor:pointer;
+      }
+      #tc-bootstrap .btn.primary{
+        border-color: transparent;
+        background: linear-gradient(180deg, var(--bar-fill1), var(--bar-fill2));
+        color:#0b0f14; text-shadow: 0 1px 0 rgba(255,255,255,.45);
+      }
+      #tc-bootstrap .btn[disabled]{ opacity:.55; filter:grayscale(.15); cursor:not-allowed; }
+      #tc-bootstrap .btn.ghost{
+        background: var(--btn-ghost);
+        color: var(--text);
+      }
+
       /* Modal */
-      .modal { position: fixed; inset: 0; display:grid; place-items:center; background: rgba(0,0,0,.45); }
-      .modal.hidden { display: none; }
-      .modal-card { width: min(780px, 94vw); max-height: 80vh; background: rgba(18,23,32,.95);
-        border:1px solid rgba(255,255,255,.12); border-radius:14px; display:flex; flex-direction:column; overflow:hidden; }
-      .modal-head { display:flex; align-items:center; justify-content:space-between; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.12); }
-      .modal-title { font-weight:700; }
-      .modal-actions { display:flex; gap:8px; }
-      .btn-ghost { background: transparent; }
-      .modal-body { overflow:auto; }
-      #tc-log { margin:0; padding: 12px; font-size: 12px; line-height: 1.4; color: #cfe3ff; }
+      #tc-bootstrap .modal{ position:fixed; inset:0; display:grid; place-items:center; background:rgba(0,0,0,.45); }
+      #tc-bootstrap .modal.hidden{ display:none; }
+      #tc-bootstrap .modal-card{
+        width:min(820px, 94vw); max-height:80vh; background: rgba(16,19,24,.96);
+        border:1px solid rgba(255,255,255,.10); border-radius:14px; display:flex; flex-direction:column; overflow:hidden;
+        box-shadow: var(--shadow);
+      }
+      #tc-bootstrap .modal-head{
+        display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid rgba(255,255,255,.10);
+      }
+      #tc-bootstrap .modal-title{ font-weight:800; }
+      #tc-bootstrap .modal-actions{ display:flex; gap:8px; }
+      #tc-bootstrap .modal-body{ overflow:auto; background:#0e1217; }
+      #tc-bootstrap #tc-log{ margin:0; padding:12px; font-size:12px; line-height:1.4; color:#cfe3ff; white-space:pre-wrap; }
     `;
     document.head.appendChild(css);
     document.body.appendChild(root);
@@ -160,6 +287,14 @@
       setTimeout(() => (btnCopy.textContent = 'Copy All'), 1200);
     });
 
+    // Keyboard: Enter starts when enabled
+    window.addEventListener('keydown', (e) => {
+      if ((e.key === 'Enter' || e.key === ' ') && !btnContinue.disabled) {
+        e.preventDefault();
+        btnContinue.click();
+      }
+    });
+
     // ---------- Steps (vendor-free) ----------
     const steps = [];
     const addStep = (label, fn) => steps.push({ label, fn });
@@ -193,7 +328,6 @@
         }
       } catch (e) {
         pushError('asset.warn', { step: 'Checking application entry file', message: e?.message || String(e) });
-        // keep going; import() will surface the real error
       }
     });
 
@@ -210,11 +344,10 @@
           setStatus(label + ' — FAILED');
           setProgress(i, total, true);
           pushError('step.fail', { step: label, message: e?.message || String(e), stack: e?.stack || null });
-          modal.classList.remove('hidden'); // stay up and show errors
-          return;
+          modal.classList.remove('hidden');
+          return; // stop here; don't enable Start
         }
       }
-      // Preflight OK → enable Continue
       setProgress(total, total, false);
       setStatus('Preflight complete');
       btnContinue.disabled = false;
@@ -223,21 +356,21 @@
     // ---------- Gated launch ----------
     btnContinue.addEventListener('click', async () => {
       btnContinue.disabled = true;
-      setStatus('Launching app…');
+      setStatus('Starting…');
       try {
-        await import('./src/main.js');      // any syntax/runtime error is caught below
-        // success → fade out and clean up
+        await import('./src/main.js');
+        // success → fade out
         setStatus('Ready');
         setTimeout(() => {
           root.style.opacity = '0';
-          root.style.transition = 'opacity .25s ease';
+          root.style.transition = 'opacity .28s ease';
           setTimeout(() => {
             window.__tcBootstrapActive = false;
             root.remove(); css.remove();
-          }, 260);
-        }, 200);
+          }, 300);
+        }, 150);
       } catch (e) {
-        // app failed to load — keep bootstrap visible
+        // keep bootstrap up
         fillEl.classList.add('errorbar');
         setStatus('App failed to launch');
         pushError('app.import.fail', { message: e?.message || String(e), stack: e?.stack || null });
