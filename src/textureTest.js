@@ -1,65 +1,94 @@
 // file: src/textureTest.js
-// Wires the Textures tab placeholders + tap-to-apply onto the test sphere.
-// Assumes there is a button with class "tex-select" and data-tex="sand" in #tab-textures.
-
 import * as THREE from 'three';
-import { showErrorOverlay } from './utils.js';
-import { getMaterial } from './textureLoader.js';
+import { loadSandMaterial } from './textureLoader.js';
 
 export function initTextureTest(appState) {
-  const state = { active: false, current: null };
-  const tab = document.getElementById('tab-textures');
-  const ray = new THREE.Raycaster();
+  const { renderer, camera, scene } = appState;
+  if (!renderer || !camera || !scene) return;
 
-  function setActiveTex(name) {
-    state.active = !!name;
-    state.current = name || null;
-    // Visual
-    tab?.querySelectorAll('.tex-select').forEach(b => {
-      const on = b.dataset.tex === state.current;
-      b.classList.toggle('on', on);
-      b.setAttribute('aria-pressed', String(on));
-    });
-  }
+  const raycaster = new THREE.Raycaster();
+  let activeTex = null;          // e.g. 'sand'
+  let activeBtn = null;
 
-  // Click on texture buttons
-  tab?.addEventListener('click', (e) => {
-    const btn = e.target.closest('.tex-select');
-    if (!btn) return;
-    const name = btn.dataset.tex;
-    if (name === state.current) {
-      setActiveTex(null);
-    } else {
-      setActiveTex(name); // enter paint mode
-      // hint other systems (pause tap-to-move in HUD if desired)
+  // Wire "Use" buttons
+  document.querySelectorAll('.tex-select').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const texId = btn.dataset.tex;
+      if (!texId) return;
+
+      // toggle off if already active
+      if (activeTex === texId) {
+        clearActive();
+        return;
+      }
+
+      setActive(btn, texId);
+
+      // Pause tap-to-move while painting
       try { window.dispatchEvent(new CustomEvent('tc:navlock', { detail: { paused: true } })); } catch {}
+    });
+  });
+
+  // Click in scene to apply to sphere when active
+  renderer.domElement.addEventListener('pointerdown', async (ev) => {
+    if (!activeTex) return;
+    if (!appState.testSphere) return;
+
+    const rect = renderer.domElement.getBoundingClientRect();
+    const x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera({ x, y }, camera);
+
+    const hits = raycaster.intersectObject(appState.testSphere, false);
+    if (!hits.length) return;
+
+    if (activeTex === 'sand') {
+      const mat = await loadSandMaterial(renderer);
+      if (mat) {
+        disposeMat(appState.testSphere.material);
+        appState.testSphere.material = mat;
+      }
+    }
+
+    // Done painting -> resume nav + clear selection
+    clearActive();
+    try { window.dispatchEvent(new CustomEvent('tc:navlock', { detail: { paused: false } })); } catch {}
+  }, { passive: true });
+
+  // ESC cancels paint mode
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && activeTex) {
+      clearActive();
+      try { window.dispatchEvent(new CustomEvent('tc:navlock', { detail: { paused: false } })); } catch {}
     }
   });
 
-  // Tap scene to apply to the test sphere
-  appState.renderer.domElement.addEventListener('pointerdown', async (ev) => {
-    if (!state.active || !appState.testSphere) return;
+  function setActive(btn, id) {
+    clearActive();
+    activeTex = id;
+    activeBtn = btn;
+    btn.classList.add('on');
+    btn.setAttribute('aria-pressed', 'true');
+    btn.textContent = 'Active';
+  }
 
-    const rect = appState.renderer.domElement.getBoundingClientRect();
-    const x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
-    const y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
-    ray.setFromCamera({ x, y }, appState.camera);
-
-    const hit = ray.intersectObject(appState.testSphere, false)[0];
-    if (!hit) return;
-
-    try {
-      const mat = await getMaterial(state.current, appState);
-      appState.testSphere.material = mat;
-      appState.testSphere.material.needsUpdate = true;
-    } catch (e) {
-      showErrorOverlay('Failed to load/apply texture.', e);
-    } finally {
-      setActiveTex(null); // exit paint mode
+  function clearActive() {
+    if (activeBtn) {
+      activeBtn.classList.remove('on');
+      activeBtn.setAttribute('aria-pressed', 'false');
+      activeBtn.textContent = 'Use';
     }
-  }, { passive: true });
+    activeBtn = null;
+    activeTex = null;
+  }
+}
 
-  return {
-    isActive(){ return !!state.active; }
-  };
+function disposeMat(mat) {
+  try {
+    if (!mat) return;
+    ['map','normalMap','roughnessMap','metalnessMap','aoMap','displacementMap'].forEach(k=>{
+      const t = mat[k]; if (t && t.dispose) t.dispose();
+    });
+    mat.dispose?.();
+  } catch {}
 }
