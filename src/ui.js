@@ -3,7 +3,13 @@ import { createTerrain, randomizeTerrain, applyHeightmapTemplate } from './terra
 import { populateTrees } from './trees.js';
 import { updateCameraBounds } from './camera.js';
 
-let uiState = { sculptOn: false, step: 0.2, radius: 2, mode: 'raise' };
+let uiState = {
+  sculptOn: false,
+  step: 0.2,
+  radius: 2,
+  mode: 'raise' // raise | lower | smooth
+};
+
 export function getUiState() { return uiState; }
 
 export function initUI(appState) {
@@ -25,6 +31,8 @@ export function initUI(appState) {
     appState.config.TILES_Y = Math.max(2, Math.min(256, parseInt(tilesY.value || '30', 10)));
     createTerrain(appState);
     updateCameraBounds(appState);
+    // Notify others (texture painter) that geometry was rebuilt
+    try { window.dispatchEvent(new Event('tc:terrain-rebuilt')); } catch(_) {}
   });
   document.getElementById('randomize').addEventListener('click', () => randomizeTerrain(appState));
 
@@ -75,23 +83,18 @@ export function initUI(appState) {
   modeLower.addEventListener('click', () => setMode('lower'));
   modeSmooth.addEventListener('click', () => setMode('smooth'));
 
-  // ---- Textures tab: Sand select -> enable paint mode ----
-  const sandBtn = document.getElementById('texSandBtn');
-  const sandBadge = document.getElementById('texSandBadge');
-  const setActiveBadge = (on) => {
-    sandBadge.textContent = on ? 'Active' : 'Select';
-    sandBadge.classList.toggle('primary', on);
-  };
-  sandBtn?.addEventListener('click', () => {
-    const on = !(window.__texPaintActive);
-    window.__texPaintActive = on;
-    // Ask the painter (if present) to toggle, and pause navlock while on
-    try {
-      const tp = appState.texturePaint;
-      if (tp) tp.setActive(on);
-    } catch {}
-    setActiveBadge(on);
-  });
-  // initial label
-  setActiveBadge(false);
+  // --- Textures tab --------------------------------------------------------
+  // Sand slot toggle: Use <-> Active
+  const sandBtn = document.getElementById('tx-sand-btn');
+  if (sandBtn){
+    sandBtn.addEventListener('click', () => {
+      const isActive = sandBtn.classList.toggle('on');
+      sandBtn.textContent = isActive ? 'Active' : 'Use';
+      try {
+        window.dispatchEvent(new CustomEvent(isActive ? 'tc:texture-activate' : 'tc:texture-deactivate', {
+          detail: { key: 'sand' }
+        }));
+      } catch(_) {}
+    });
+  }
 }
