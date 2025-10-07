@@ -3,21 +3,26 @@ import * as THREE from 'three';
 
 export function createTestSphere(appState) {
   const { scene, config } = appState;
-  const r = Math.max(10, config.TILE_SIZE * 0.9);
-  const geo = new THREE.SphereGeometry(r, 48, 32);
+  if (!scene) return;
+
+  const radius = Math.max(18, config.TILE_SIZE * 0.5);
+  const segs = 64;
+
+  const geom = new THREE.SphereGeometry(radius, segs, segs);
   const mat = new THREE.MeshStandardMaterial({
-    color: 0xcccccc,
+    color: 0xaaaaaa,
     metalness: 0.0,
-    roughness: 1.0,
+    roughness: 0.95
   });
-  const sphere = new THREE.Mesh(geo, mat);
+
+  const sphere = new THREE.Mesh(geom, mat);
   sphere.castShadow = true;
   sphere.receiveShadow = false;
+  sphere.name = 'TestSphere';
 
-  // place slightly above terrain center
-  const yLift = Math.max(20, config.CHAR_HEIGHT_UNITS * 0.6);
-  sphere.position.set(0, yLift, 0);
+  // float the sphere a bit above mean terrain
+  sphere.position.set(0, Math.max(40, config.CHAR_HEIGHT_UNITS * 1.2), 0);
 
   scene.add(sphere);
-  return sphere;
+  appState.testSphere = sphere;
 }
