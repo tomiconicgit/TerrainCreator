@@ -81,5 +81,12 @@ export function initUI(appState) {
   modeLower.addEventListener('click', () => setMode('lower'));
   modeSmooth.addEventListener('click', () => setMode('smooth'));
 
-  // (Grid toggle moved to NavLock HUD)
+  // Textures (placeholders): just log for now
+  document.querySelectorAll('button[data-tex]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = btn.getAttribute('data-tex');
+      console.log(`Texture slot ${idx} select clicked (placeholder).`);
+      // Future: open file picker, preview in #texThumb{idx}, and attach to materials
+    });
+  });
 }
