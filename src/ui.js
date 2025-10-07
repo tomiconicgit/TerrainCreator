@@ -84,39 +84,43 @@ export function initUI(appState) {
   modeSmooth.addEventListener('click', () => setMode('smooth'));
 
   // --- Textures tab --------------------------------------------------------
-  const texButtons = {
-    sand: document.getElementById('tx-sand-btn'),
-    dryground: document.getElementById('tx-dryground-btn'),
-    sandstone: document.getElementById('tx-sandstone-btn'),
-    coastsand: document.getElementById('tx-coastsand-btn'),
-  };
+  // Toggle buttons: Single-selection “Use/Active” across 4 textures.
+  const buttons = [
+    { id: 'tx-sand-btn',  key: 'sand' },
+    { id: 'tx-dry-btn',   key: 'dryground' },
+    { id: 'tx-stone-btn', key: 'sandstone' },
+    { id: 'tx-coast-btn', key: 'coastsand' },
+  ];
 
-  function setActiveTexture(keyOrNull){
-    const keys = Object.keys(texButtons);
-    const activeKey = keyOrNull && keys.includes(keyOrNull) ? keyOrNull : null;
+  const byId = {};
+  buttons.forEach(({ id }) => byId[id] = document.getElementById(id));
 
-    keys.forEach(k => {
-      const b = texButtons[k];
-      if (!b) return;
-      const on = (k === activeKey);
-      b.classList.toggle('on', on);
-      b.textContent = on ? 'Active' : 'Use';
-    });
-
-    try {
-      if (activeKey) {
-        window.dispatchEvent(new CustomEvent('tc:texture-activate', { detail: { key: activeKey } }));
-      } else {
-        window.dispatchEvent(new CustomEvent('tc:texture-deactivate'));
-      }
-    } catch(_) {}
+  function setBtnState(btn, on) {
+    btn.classList.toggle('on', on);
+    btn.textContent = on ? 'Active' : 'Use';
   }
 
-  Object.entries(texButtons).forEach(([key, btn]) => {
+  function deactivateAll() {
+    buttons.forEach(({ id }) => {
+      const b = byId[id];
+      if (b && b.classList.contains('on')) setBtnState(b, false);
+    });
+    try { window.dispatchEvent(new CustomEvent('tc:texture-deactivate')); } catch(_) {}
+  }
+
+  function wireTexBtn(id, key) {
+    const btn = byId[id];
     if (!btn) return;
     btn.addEventListener('click', () => {
-      const makeActive = !btn.classList.contains('on');
-      setActiveTexture(makeActive ? key : null);
+      const willActivate = !btn.classList.contains('on');
+      // single-select
+      deactivateAll();
+      if (willActivate) {
+        setBtnState(btn, true);
+        try { window.dispatchEvent(new CustomEvent('tc:texture-activate', { detail: { key } })); } catch(_) {}
+      }
     });
-  });
+  }
+
+  buttons.forEach(({ id, key }) => wireTexBtn(id, key));
 }
