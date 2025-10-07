@@ -8,7 +8,6 @@ import { initSculpting, initTapToMove } from './sculpt.js';
 import { initUI, getUiState } from './ui.js';
 import initNavLock from './navlock.js';
 
-// NEW: test sphere + texture test
 import { createTestSphere } from './testSphere.js';
 import { initTextureTest } from './textureTest.js';
 
@@ -21,7 +20,8 @@ async function startApp() {
     terrainGroup: null, terrainMesh: null, terrainMaterial: null,
     treesGroup: null, ball: null,
     gridLines: null,
-    testSphere: null,          // <= sphere for texture tests
+    testSphere: null,
+    paint: null,
     camFollowEnabled: true,
     config: {
       TILES_X: 30, TILES_Y: 30, TILE_SIZE: 32,
@@ -63,15 +63,17 @@ async function startApp() {
   appState.dirLight = dirLight;
   appState.lightTarget = lightTarget;
 
-  // Terrain & UI
+  // Terrain (sets up paint system internally)
   createTerrain(appState);
+
+  // UI + tools
   initUI(appState);
   initSculpting(appState, getUiState);
 
-  // TEST SPHERE for texture trials
+  // Test sphere stays for quick visual checks
   createTestSphere(appState);
 
-  // Texture tab interactions (select texture, paint to sphere)
+  // Texture selection + sphere OR terrain painting
   initTextureTest(appState);
 
   let allowTapMove = true;
