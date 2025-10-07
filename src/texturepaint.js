@@ -3,24 +3,30 @@
 //
 // Public API:
 //   const painter = initTexturePainter(appState)
-//   painter.attachToTerrain()              // call after terrain (re)builds
-//   painter.setActive('sand' | null)       // enable/disable paint mode
-//   painter.clearAll()                     // clear mask
+//   painter.attachToTerrain()                        // call after terrain (re)builds
+//   painter.setActive('sand'|'dryground'|'sandstone'|'coastsand'|null)
+//   painter.clearAll()
 
 import * as THREE from 'three';
+import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
 
 const SUBDIVISIONS = 4; // must match terrain.js
 
 export default function initTexturePainter(appState) {
-  const loader = new THREE.TextureLoader();
+  const texLoader = new THREE.TextureLoader();
+  const exrLoader = new EXRLoader();
 
-  // Base albedo used when mask==1
-  const sandTex = loader.load('assets/textures/sand/sand-diffuse.jpg');
-  sandTex.wrapS = sandTex.wrapT = THREE.RepeatWrapping;
-  sandTex.colorSpace = THREE.SRGBColorSpace;
-  sandTex.anisotropy = 8;
+  function loadTex(url, { isColor = false } = {}) {
+    const useEXR = url.toLowerCase().endsWith('.exr');
+    const t = useEXR ? exrLoader.load(url) : texLoader.load(url);
+    // Tiling + sampling
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = 8;
+    // Correct color spaces
+    t.colorSpace = isColor ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    return t;
+  }
 
-  // Helper: make a 1x1 white texture to force UV pipeline without affecting visuals
   function makeWhiteTex() {
     const white = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
     white.colorSpace = THREE.SRGBColorSpace;
@@ -28,42 +34,86 @@ export default function initTexturePainter(appState) {
     return white;
   }
 
+  function makeNeutralNormalTex() {
+    // (0.5, 0.5, 1.0) in 8-bit
+    const n = new THREE.DataTexture(new Uint8Array([128, 128, 255]), 1, 1, THREE.RGBFormat);
+    n.colorSpace = THREE.NoColorSpace;
+    n.needsUpdate = true;
+    return n;
+  }
+
+  // --- Texture sets (albedo/normal/roughness) ------------------------------
+  const tex = {
+    sand: {
+      albedo: loadTex('assets/textures/sand/sand-diffuse.jpg', { isColor: true }),
+      normal: loadTex('assets/textures/sand/sand-normal.exr'),
+      rough:  loadTex('assets/textures/sand/sand-roughness.jpg'),
+    },
+    dryground: {
+      albedo: loadTex('assets/textures/dryground/dryground-diffuse.jpg', { isColor: true }),
+      normal: loadTex('assets/textures/dryground/dryground-normal.exr'),
+      rough:  loadTex('assets/textures/dryground/dryground-roughness.jpg'),
+    },
+    sandstone: {
+      albedo: loadTex('assets/textures/sandstone/sandstone-diffuse.jpg', { isColor: true }),
+      normal: loadTex('assets/textures/sandstone/sandstone-normal.exr'),
+      rough:  loadTex('assets/textures/sandstone/sandstone-roughness.jpg'),
+    },
+    coastsand: {
+      albedo: loadTex('assets/textures/coastsand/coastsand-diffuse.jpg', { isColor: true }),
+      normal: loadTex('assets/textures/coastsand/coastsand-normal.exr'),
+      rough:  loadTex('assets/textures/coastsand/coastsand-roughness.exr'),
+    },
+  };
+
   const state = {
-    activeKey: null,          // 'sand' | null
-    maskAttr: null,           // BufferAttribute (Float32)
+    activeKey: null,          // 'sand' | 'dryground' | 'sandstone' | 'coastsand' | null
+    maskAttrs: {},            // { sand: BufferAttribute, dryground: ..., sandstone: ..., coastsand: ... }
     tilesUniform: new THREE.Vector2(1, 1),
-    uvScale: 1.0              // tiling inside a tile (1 = 1x per tile)
+    uvScale: 1.0,             // tiling inside a tile (1 = 1x per tile)
+    normalScale: new THREE.Vector2(1, 1),
   };
 
   // ---- helpers -------------------------------------------------------------
 
-  function _addOrResizeMaskAttribute(mesh) {
+  function _addOrResizeMaskAttributes(mesh) {
     const geom = mesh?.geometry;
     if (!geom) return;
 
     const verts = (geom.attributes.position?.count) || 0;
-    const existing = geom.getAttribute('mask1');
-    if (!existing || existing.count !== verts) {
-      const attr = new THREE.BufferAttribute(new Float32Array(verts), 1);
-      geom.setAttribute('mask1', attr);
-      state.maskAttr = attr;
-    } else {
-      state.maskAttr = existing;
-    }
+
+    const ensure = (name) => {
+      const ex = geom.getAttribute(name);
+      if (!ex || ex.count !== verts) {
+        const attr = new THREE.BufferAttribute(new Float32Array(verts), 1);
+        geom.setAttribute(name, attr);
+        return attr;
+      }
+      return ex;
+    };
+
+    state.maskAttrs.sand      = ensure('mask1');
+    state.maskAttrs.dryground = ensure('mask2');
+    state.maskAttrs.sandstone = ensure('mask3');
+    state.maskAttrs.coastsand = ensure('mask4');
   }
 
-  // Ensure the material has UVs available (otherwise <uv_vertex> doesn’t compile)
   function _ensureUVs(mat) {
     // Attach a no-op white map if none present (this flips on USE_UV internally)
     if (!mat.map) {
       mat.map = makeWhiteTex();
     }
-    // Extra safety: make sure the shader sees USE_UV even if implementation changes
+    // Force normal pipeline availability so we can override its chunk
+    if (!mat.normalMap) {
+      mat.normalMap = makeNeutralNormalTex(); // triggers USE_NORMALMAP code path
+      mat.normalScale = state.normalScale.clone();
+    }
     mat.defines = mat.defines || {};
     mat.defines.USE_UV = 1;
+    mat.defines.USE_NORMALMAP = 1;
   }
 
-  // Material hook: mix diffuse with sand albedo based on vMask1.
+  // Material hook: blend up to 4 texture sets (albedo + normal + roughness) by per-vertex masks.
   function _hookMaterial(mat) {
     if (!mat) return;
     if (mat.userData.__texPaintHooked) return;
@@ -73,44 +123,132 @@ export default function initTexturePainter(appState) {
     _ensureUVs(mat);
 
     mat.onBeforeCompile = (shader) => {
-      // ensure the define persists
       shader.defines = shader.defines || {};
       shader.defines.USE_UV = 1;
+      shader.defines.USE_NORMALMAP = 1;
 
-      shader.uniforms.sandMap     = { value: sandTex };
-      shader.uniforms.tiles       = { value: state.tilesUniform };
-      shader.uniforms.sandUVScale = { value: state.uvScale };
+      // Albedo samplers
+      shader.uniforms.sandMap      = { value: tex.sand.albedo };
+      shader.uniforms.dryMap       = { value: tex.dryground.albedo };
+      shader.uniforms.sandstoneMap = { value: tex.sandstone.albedo };
+      shader.uniforms.coastMap     = { value: tex.coastsand.albedo };
 
-      // Pass mask1 -> vMask1 and make sure UVs exist via the uv chunk
+      // Normal samplers
+      shader.uniforms.sandNorm      = { value: tex.sand.normal };
+      shader.uniforms.dryNorm       = { value: tex.dryground.normal };
+      shader.uniforms.sandstoneNorm = { value: tex.sandstone.normal };
+      shader.uniforms.coastNorm     = { value: tex.coastsand.normal };
+
+      // Roughness samplers
+      shader.uniforms.sandRough      = { value: tex.sand.rough };
+      shader.uniforms.dryRough       = { value: tex.dryground.rough };
+      shader.uniforms.sandstoneRough = { value: tex.sandstone.rough };
+      shader.uniforms.coastRough     = { value: tex.coastsand.rough };
+
+      // Shared params
+      shader.uniforms.tiles        = { value: state.tilesUniform };
+      shader.uniforms.sandUVScale  = { value: state.uvScale };
+      shader.uniforms.uNormalScale = { value: state.normalScale };
+
+      // ---- VERTEX: pass masks to fragment
       shader.vertexShader = shader.vertexShader
         .replace(
           '#include <uv_pars_vertex>',
-          '#include <uv_pars_vertex>\nattribute float mask1;\nvarying float vMask1;'
+          `#include <uv_pars_vertex>
+           attribute float mask1; attribute float mask2; attribute float mask3; attribute float mask4;
+           varying float vMask1; varying float vMask2; varying float vMask3; varying float vMask4;`
         )
         .replace(
           '#include <uv_vertex>',
-          '#include <uv_vertex>\n vMask1 = mask1;'
+          `#include <uv_vertex>
+           vMask1 = mask1; vMask2 = mask2; vMask3 = mask3; vMask4 = mask4;`
         );
 
-      // Mix in sand where mask is 1. We sample using (tiled) vUv.
+      // ---- FRAGMENT: uniforms + helpers
       shader.fragmentShader = shader.fragmentShader
         .replace(
           '#include <common>',
           `#include <common>
-           uniform sampler2D sandMap;
-           uniform vec2 tiles;
-           uniform float sandUVScale;
-           varying float vMask1;`
+           uniform sampler2D sandMap, dryMap, sandstoneMap, coastMap;
+           uniform sampler2D sandNorm, dryNorm, sandstoneNorm, coastNorm;
+           uniform sampler2D sandRough, dryRough, sandstoneRough, coastRough;
+           uniform vec2 tiles; uniform float sandUVScale; uniform vec2 uNormalScale;
+           varying float vMask1, vMask2, vMask3, vMask4;`
         )
+
+        // ALBEDO: blend into diffuseColor
         .replace(
           'vec4 diffuseColor = vec4( diffuse, opacity );',
           `vec4 diffuseColor = vec4( diffuse, opacity );
            vec2 tileUV = fract(vUv * tiles) * sandUVScale;
-           vec3 sand = texture2D(sandMap, tileUV).rgb;
-           diffuseColor.rgb = mix(diffuseColor.rgb, sand, clamp(vMask1, 0.0, 1.0));`
+           vec3 t_sand  = texture2D(sandMap,      tileUV).rgb;
+           vec3 t_dry   = texture2D(dryMap,       tileUV).rgb;
+           vec3 t_stone = texture2D(sandstoneMap, tileUV).rgb;
+           vec3 t_coast = texture2D(coastMap,     tileUV).rgb;
+
+           float w1 = clamp(vMask1, 0.0, 1.0);
+           float w2 = clamp(vMask2, 0.0, 1.0);
+           float w3 = clamp(vMask3, 0.0, 1.0);
+           float w4 = clamp(vMask4, 0.0, 1.0);
+           float s  = w1 + w2 + w3 + w4;
+
+           if (s > 1e-5) {
+             vec3 blended = (w1*t_sand + w2*t_dry + w3*t_stone + w4*t_coast) / s;
+             diffuseColor.rgb = mix(diffuseColor.rgb, blended, clamp(s, 0.0, 1.0));
+           }`
+        )
+
+        // NORMALS: replace the stock normal map application with our blended normal
+        .replace(
+          '#include <normal_fragment_maps>',
+          `{
+             vec2 tileUV = fract(vUv * tiles) * sandUVScale;
+
+             vec3 n1 = texture2D(sandNorm,      tileUV).xyz * 2.0 - 1.0;
+             vec3 n2 = texture2D(dryNorm,       tileUV).xyz * 2.0 - 1.0;
+             vec3 n3 = texture2D(sandstoneNorm, tileUV).xyz * 2.0 - 1.0;
+             vec3 n4 = texture2D(coastNorm,     tileUV).xyz * 2.0 - 1.0;
+
+             float w1 = clamp(vMask1, 0.0, 1.0);
+             float w2 = clamp(vMask2, 0.0, 1.0);
+             float w3 = clamp(vMask3, 0.0, 1.0);
+             float w4 = clamp(vMask4, 0.0, 1.0);
+             float s  = w1 + w2 + w3 + w4;
+
+             if (s > 1e-5) {
+               vec3 nMix = (w1*n1 + w2*n2 + w3*n3 + w4*n4) / s;
+               nMix.xy *= uNormalScale;
+               // Tangent-space perturbation (Three's helper)
+               normal = perturbNormal2Arb( -vViewPosition, normal, nMix );
+             }
+           }`
+        )
+
+        // ROUGHNESS: replace the roughness map sampling with our blended roughness
+        .replace(
+          '#include <roughnessmap_fragment>',
+          `{
+             vec2 tileUV = fract(vUv * tiles) * sandUVScale;
+
+             float r1 = texture2D(sandRough,      tileUV).g;
+             float r2 = texture2D(dryRough,       tileUV).g;
+             float r3 = texture2D(sandstoneRough, tileUV).g;
+             float r4 = texture2D(coastRough,     tileUV).g;
+
+             float w1 = clamp(vMask1, 0.0, 1.0);
+             float w2 = clamp(vMask2, 0.0, 1.0);
+             float w3 = clamp(vMask3, 0.0, 1.0);
+             float w4 = clamp(vMask4, 0.0, 1.0);
+             float s  = w1 + w2 + w3 + w4;
+
+             if (s > 1e-5) {
+               float rMix = (w1*r1 + w2*r2 + w3*r3 + w4*r4) / s;
+               roughnessFactor *= rMix;
+             }
+           }`
         );
 
-      // remember shader for later uniform updates
+      // keep a handle for live uniform updates
       mat.userData._shader = shader;
     };
 
@@ -142,10 +280,10 @@ export default function initTexturePainter(appState) {
     return { i, j };
   }
 
-  // Paint one big tile by setting mask=1 on its vertices
-  function _paintTile(i, j) {
+  // Paint one big tile: set selected mask to 1 and reset others to 0 in that tile region.
+  function _paintTileActive(i, j) {
     const mesh = appState.terrainMesh;
-    if (!mesh || !state.maskAttr) return;
+    if (!mesh || !state.maskAttrs || !state.activeKey) return;
 
     const { config } = appState;
     const widthSegments  = config.TILES_X * SUBDIVISIONS;
@@ -157,22 +295,28 @@ export default function initTexturePainter(appState) {
     const row0 = j * SUBDIVISIONS;
     const row1 = (j + 1) * SUBDIVISIONS;
 
-    const mask = state.maskAttr.array;
+    const keys = ['sand','dryground','sandstone','coastsand'];
 
     for (let r = row0; r <= row1; r++) {
       for (let c = col0; c <= col1; c++) {
         const idx = r * vpr + c;
-        mask[idx] = 1.0;
+        for (const k of keys) {
+          const attr = state.maskAttrs[k];
+          if (!attr) continue;
+          attr.array[idx] = (k === state.activeKey) ? 1.0 : 0.0;
+        }
       }
     }
-    state.maskAttr.needsUpdate = true;
+    Object.values(state.maskAttrs).forEach(attr => { if (attr) attr.needsUpdate = true; });
   }
 
-  // Clear entire mask
+  // Clear entire masks
   function _clearAll() {
-    if (!state.maskAttr) return;
-    state.maskAttr.array.fill(0);
-    state.maskAttr.needsUpdate = true;
+    Object.values(state.maskAttrs).forEach(attr => {
+      if (!attr) return;
+      attr.array.fill(0);
+      attr.needsUpdate = true;
+    });
   }
 
   // pointer handler (only when an active texture is selected)
@@ -193,20 +337,19 @@ export default function initTexturePainter(appState) {
     const worldPt = hits[0].point.clone();
     const local = appState.terrainMesh.worldToLocal(worldPt);
     const { i, j } = _localToTile(local.x, local.z);
-    _paintTile(i, j);
+    _paintTileActive(i, j);
   }
 
   // ---- public control -----------------------------------------------------
   function attachToTerrain() {
     if (!appState.terrainMesh || !appState.terrainMaterial) return;
-    _addOrResizeMaskAttribute(appState.terrainMesh);
+    _addOrResizeMaskAttributes(appState.terrainMesh);
     _hookMaterial(appState.terrainMaterial); // hook the *current* material
     _updateTileUniforms();
   }
 
   function setActive(keyOrNull) {
     state.activeKey = keyOrNull || null;
-
     // Freeze tap-to-move while painting (reuse HUD event)
     try {
       window.dispatchEvent(new CustomEvent('tc:navlock', {
@@ -215,7 +358,6 @@ export default function initTexturePainter(appState) {
     } catch (_) {}
   }
 
-  // install one canvas listener for this renderer
   if (!appState.__texturePainterInstalled) {
     appState.renderer?.domElement?.addEventListener('pointerdown', _onPointerDown, { passive: true });
     appState.__texturePainterInstalled = true;
