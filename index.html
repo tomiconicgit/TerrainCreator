@@ -132,7 +132,7 @@
       <div class="tabcontent" id="tab-textures">
         <div class="section">
           <div class="texgrid">
-            <!-- Slot 1: Sand -->
+            <!-- Sand -->
             <div class="texslot">
               <div class="teximg">
                 <img src="assets/textures/sand/sand-diffuse.jpg" alt="Sand preview" />
@@ -143,46 +143,46 @@
               </div>
             </div>
 
-            <!-- Slot 2: Dry ground -->
+            <!-- Dry Ground -->
             <div class="texslot">
               <div class="teximg">
                 <img src="assets/textures/dryground/dryground-diffuse.jpg" alt="Dry ground preview" />
               </div>
               <div class="row row-split">
-                <label>Dry ground</label>
-                <button id="tx-dryground-btn" class="btn">Use</button>
+                <label>Dry Ground</label>
+                <button id="tx-dry-btn" class="btn">Use</button>
               </div>
             </div>
 
-            <!-- Slot 3: Sandstone -->
+            <!-- Sandstone -->
             <div class="texslot">
               <div class="teximg">
                 <img src="assets/textures/sandstone/sandstone-diffuse.jpg" alt="Sandstone preview" />
               </div>
               <div class="row row-split">
                 <label>Sandstone</label>
-                <button id="tx-sandstone-btn" class="btn">Use</button>
+                <button id="tx-stone-btn" class="btn">Use</button>
               </div>
             </div>
 
-            <!-- Slot 4: Coast sand -->
+            <!-- Coast Sand -->
             <div class="texslot">
               <div class="teximg">
                 <img src="assets/textures/coastsand/coastsand-diffuse.jpg" alt="Coast sand preview" />
               </div>
               <div class="row row-split">
-                <label>Coast sand</label>
-                <button id="tx-coastsand-btn" class="btn">Use</button>
+                <label>Coast Sand</label>
+                <button id="tx-coast-btn" class="btn">Use</button>
               </div>
             </div>
 
-            <!-- Remaining placeholders -->
+            <!-- 4 placeholders -->
             <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 5</label><span class="pill muted">Coming soon</span></div></div>
             <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 6</label><span class="pill muted">Coming soon</span></div></div>
             <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 7</label><span class="pill muted">Coming soon</span></div></div>
             <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 8</label><span class="pill muted">Coming soon</span></div></div>
           </div>
-          <p class="hint">Tap "Use", then tap a tile on the terrain to paint it. Tap "Active" again to exit.</p>
+          <p class="hint">Tap “Use”, then tap a tile on the terrain to paint it. Tap “Active” again to exit.</p>
         </div>
       </div>
 
@@ -218,10 +218,8 @@
       content:'Preview'; opacity:.35; font-weight:800;
     }
     .teximg img{ width:100%; height:100%; object-fit:cover; display:block; }
-    #tx-sand-btn.on,
-    #tx-dryground-btn.on,
-    #tx-sandstone-btn.on,
-    #tx-coastsand-btn.on{ box-shadow: inset 0 0 0 2px #00000022; }
+    /* generic “active” ring */
+    .texslot .btn.on{ box-shadow: inset 0 0 0 2px #00000022; }
   </style>
 </body>
 </html>
