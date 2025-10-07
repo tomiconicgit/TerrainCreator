@@ -3,13 +3,7 @@ import { createTerrain, randomizeTerrain, applyHeightmapTemplate } from './terra
 import { populateTrees } from './trees.js';
 import { updateCameraBounds } from './camera.js';
 
-let uiState = {
-  sculptOn: false,
-  step: 0.2,
-  radius: 2,
-  mode: 'raise' // raise | lower | smooth
-};
-
+let uiState = { sculptOn: false, step: 0.2, radius: 2, mode: 'raise' };
 export function getUiState() { return uiState; }
 
 export function initUI(appState) {
@@ -81,12 +75,23 @@ export function initUI(appState) {
   modeLower.addEventListener('click', () => setMode('lower'));
   modeSmooth.addEventListener('click', () => setMode('smooth'));
 
-  // Textures (placeholders): just log for now
-  document.querySelectorAll('button[data-tex]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const idx = btn.getAttribute('data-tex');
-      console.log(`Texture slot ${idx} select clicked (placeholder).`);
-      // Future: open file picker, preview in #texThumb{idx}, and attach to materials
-    });
+  // ---- Textures tab: Sand select -> enable paint mode ----
+  const sandBtn = document.getElementById('texSandBtn');
+  const sandBadge = document.getElementById('texSandBadge');
+  const setActiveBadge = (on) => {
+    sandBadge.textContent = on ? 'Active' : 'Select';
+    sandBadge.classList.toggle('primary', on);
+  };
+  sandBtn?.addEventListener('click', () => {
+    const on = !(window.__texPaintActive);
+    window.__texPaintActive = on;
+    // Ask the painter (if present) to toggle, and pause navlock while on
+    try {
+      const tp = appState.texturePaint;
+      if (tp) tp.setActive(on);
+    } catch {}
+    setActiveBadge(on);
   });
+  // initial label
+  setActiveBadge(false);
 }
