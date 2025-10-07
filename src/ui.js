@@ -1,5 +1,5 @@
 // file: src/ui.js
-import { createTerrain, randomizeTerrain, applyHeightmapTemplate, setMainGridVisible } from './terrain.js';
+import { createTerrain, randomizeTerrain, applyHeightmapTemplate } from './terrain.js';
 import { populateTrees } from './trees.js';
 import { updateCameraBounds } from './camera.js';
 
@@ -23,7 +23,7 @@ export function initUI(appState) {
     });
   });
 
-  // --- Terrain Size & actions ---
+  // Terrain size + actions
   const tilesX = document.getElementById('tilesX');
   const tilesY = document.getElementById('tilesY');
   document.getElementById('genTerrain').addEventListener('click', () => {
@@ -31,38 +31,26 @@ export function initUI(appState) {
     appState.config.TILES_Y = Math.max(2, Math.min(256, parseInt(tilesY.value || '30', 10)));
     createTerrain(appState);
     updateCameraBounds(appState);
-    applyGridToggleState();
   });
-
   document.getElementById('randomize').addEventListener('click', () => randomizeTerrain(appState));
 
-  // --- Grid outlines (switch) ---
-  const gridToggle = document.getElementById('gridToggle');
-  const applyGridToggleState = () => {
-    setMainGridVisible(appState, !!gridToggle.checked);
-  };
-  gridToggle.addEventListener('change', applyGridToggleState);
-  // init state
-  applyGridToggleState();
-
-  // --- Template ---
+  // Templates
   const templateSel = document.getElementById('template');
   document.getElementById('applyTemplate').addEventListener('click', () => applyHeightmapTemplate(templateSel.value, appState));
 
-  // --- Tree population ---
+  // Trees
   const treeCount = document.getElementById('treeCount');
   document.getElementById('applyTrees').addEventListener('click', () => {
     const n = Math.max(0, Math.min(100000, parseInt(treeCount.value || '0', 10)));
     populateTrees(n, appState);
   });
 
-  // --- Sculpt ---
+  // Sculpt
   const sculptOn = document.getElementById('sculptOn');
   sculptOn.addEventListener('change', (e) => {
     uiState.sculptOn = e.target.checked;
     appState.controls.enabled = !uiState.sculptOn;
   });
-
   const stepInput = document.getElementById('stepInput');
   const radiusInput = document.getElementById('radiusInput');
   stepInput.addEventListener('change', () => uiState.step = parseFloat(stepInput.value));
@@ -93,12 +81,5 @@ export function initUI(appState) {
   modeLower.addEventListener('click', () => setMode('lower'));
   modeSmooth.addEventListener('click', () => setMode('smooth'));
 
-  // PWA install prompt
-  let promptEvt = null;
-  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); promptEvt = e; });
-  const installBtn = document.getElementById('installBtn');
-  installBtn?.addEventListener('click', () => {
-    if (promptEvt) { promptEvt.prompt(); promptEvt = null; }
-    else alert('To install: Share > Add to Home Screen');
-  });
+  // (Grid toggle moved to NavLock HUD)
 }
