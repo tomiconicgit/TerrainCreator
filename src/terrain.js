@@ -2,7 +2,6 @@
 import * as THREE from 'three';
 import { dispose } from './utils.js';
 import CubeMarker from './character.js';
-import { initPaintSystem, createPaintableTerrainMaterial, rebuildPaintMaskOnTerrainChange } from './paint.js';
 
 // how many terrain-geometry segments per 1×1 tile
 const SUBDIVISIONS = 4;
@@ -10,6 +9,29 @@ const SUBDIVISIONS = 4;
 // internal refs
 let gridLines = null;          // THREE.LineSegments (red grid)
 let gridPositions = null;      // Float32Array backing the grid's BufferGeometry
+
+// ---------- materials / helpers ----------
+function makeSimpleMaterial() {
+  return new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    metalness: 0.05,
+    roughness: 0.9,
+    vertexColors: true,
+  });
+}
+
+function setAllVertexColors(geom, colorHex = 0xD2B48C) {
+  const col = new THREE.Color(colorHex);
+  const { widthSegments, heightSegments } = geom.parameters;
+  const vertexCount = (widthSegments + 1) * (heightSegments + 1);
+  const colors = new Float32Array(vertexCount * 3);
+  for (let i = 0; i < vertexCount; i++) {
+    colors[i * 3 + 0] = col.r;
+    colors[i * 3 + 1] = col.g;
+    colors[i * 3 + 2] = col.b;
+  }
+  geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+}
 
 // Bilinear sample of CURRENT terrain heights (mesh local X/Z -> Y)
 function sampleHeightLocal(x, z, terrainMesh, config) {
@@ -52,6 +74,7 @@ function sampleHeightLocal(x, z, terrainMesh, config) {
 
 // ---------- red grid (build once, then UPDATE) ----------
 function buildMainGrid(appState) {
+  // clean old
   if (gridLines) {
     try { gridLines.geometry?.dispose(); } catch {}
     try { gridLines.material?.dispose(); } catch {}
@@ -67,11 +90,12 @@ function buildMainGrid(appState) {
   const segsX = TILES_X * SUBDIVISIONS;
   const segsY = TILES_Y * SUBDIVISIONS;
 
+  // pair-per-segment for both directions
   const segmentsCount =
-    (TILES_X * segsY) +
-    (TILES_Y * segsX) +
-    segsY + segsX;
-  const floats = segmentsCount * 2 * 3;
+    (TILES_X * segsY) +       // verticals along all columns
+    (TILES_Y * segsX) +       // horizontals along all rows
+    segsY + segsX;            // outer frame edges
+  const floats = segmentsCount * 2 /*points*/ * 3 /*xyz*/;
 
   const geom = new THREE.BufferGeometry();
   gridPositions = new Float32Array(floats);
@@ -84,6 +108,8 @@ function buildMainGrid(appState) {
   gridLines.frustumCulled = false;
 
   appState.terrainGroup.add(gridLines);
+
+  // first layout (flat); immediately refresh to match current terrain
   refreshMainGrid(appState);
 }
 
@@ -97,10 +123,10 @@ export function refreshMainGrid(appState) {
   const segsX = TILES_X * SUBDIVISIONS;
   const segsY = TILES_Y * SUBDIVISIONS;
 
-  const lift = 0.6;
+  const lift = 0.6; // float above surface to avoid z-fighting
   let p = 0;
 
-  // vertical lines
+  // vertical lines (constant x, marching in z)
   for (let i = 0; i <= TILES_X; i++) {
     const x = -W / 2 + i * TILE_SIZE;
     for (let k = 0; k < segsY; k++) {
@@ -114,7 +140,7 @@ export function refreshMainGrid(appState) {
     }
   }
 
-  // horizontal lines
+  // horizontal lines (constant z, marching in x)
   for (let j = 0; j <= TILES_Y; j++) {
     const z = -H / 2 + j * TILE_SIZE;
     for (let k = 0; k < segsX; k++) {
@@ -130,10 +156,11 @@ export function refreshMainGrid(appState) {
 
   gridLines.geometry.attributes.position.needsUpdate = true;
   gridLines.geometry.computeBoundingSphere();
-  appState.gridLines = gridLines;
+  appState.gridLines = gridLines; // expose for raycasting
 }
 
 export function rebuildGridAfterGeometry(appState) {
+  // If grid exists, update in place; otherwise build it.
   if (gridLines && gridPositions) refreshMainGrid(appState);
   else buildMainGrid(appState);
 }
@@ -144,19 +171,6 @@ export function setMainGridVisible(appState, visible) {
 }
 
 // ---------- terrain lifecycle ----------
-function setAllVertexColors(geom, colorHex = 0xD2B48C) {
-  const col = new THREE.Color(colorHex);
-  const { widthSegments, heightSegments } = geom.parameters;
-  const vertexCount = (widthSegments + 1) * (heightSegments + 1);
-  const colors = new Float32Array(vertexCount * 3);
-  for (let i = 0; i < vertexCount; i++) {
-    colors[i * 3 + 0] = col.r;
-    colors[i * 3 + 1] = col.g;
-    colors[i * 3 + 2] = col.b;
-  }
-  geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-}
-
 export function createTerrain(appState) {
   const { scene } = appState;
   const { TILES_X, TILES_Y, TILE_SIZE, CHAR_HEIGHT_UNITS } = appState.config;
@@ -173,17 +187,12 @@ export function createTerrain(appState) {
 
   const geom = new THREE.PlaneGeometry(W, H, widthSegments, heightSegments);
   geom.rotateX(-Math.PI / 2);
-  setAllVertexColors(geom, 0xD2B48C);
 
-  // Initialize or rebuild paint system (mask size follows tile count)
-  if (!appState.paint) initPaintSystem(appState);
-  else rebuildPaintMaskOnTerrainChange(appState);
-
-  // Create material with paint hook
-  const mat = createPaintableTerrainMaterial(appState);
-
+  const mat = makeSimpleMaterial();
   const mesh = new THREE.Mesh(geom, mat);
   mesh.receiveShadow = true;
+
+  setAllVertexColors(geom, 0xD2B48C);
 
   const terrainGroup = new THREE.Group();
   terrainGroup.name = 'TileTerrain';
@@ -194,14 +203,14 @@ export function createTerrain(appState) {
   appState.terrainMesh = mesh;
   appState.terrainMaterial = mat;
 
-  // Red grid
+  // (Re)build grid now that we have the mesh
   buildMainGrid(appState);
   setMainGridVisible(appState, appState.gridMainVisible ?? true);
 
-  // Cube marker
+  // Spawn the cube marker
   const cubeSize = Math.max(10, Math.min(TILE_SIZE * 0.6, CHAR_HEIGHT_UNITS * 0.5));
   appState.ball?.dispose();
-  appState.ball = new (CubeMarker)({
+  appState.ball = new CubeMarker({
     three: THREE,
     scene,
     terrainMesh: mesh,
@@ -220,6 +229,7 @@ export function randomizeTerrain(appState) {
   for (let i = 1; i < arr.length; i += 3) arr[i] += (Math.random() - 0.5) * 2.5;
   appState.terrainMesh.geometry.attributes.position.needsUpdate = true;
   appState.terrainMesh.geometry.computeVertexNormals();
+  // keep grid synced
   rebuildGridAfterGeometry(appState);
   appState.ball?.refresh();
 }
@@ -256,6 +266,7 @@ export function applyHeightmapTemplate(name, appState) {
   terrainMesh.geometry.attributes.position.needsUpdate = true;
   terrainMesh.geometry.computeVertexNormals();
 
+  // sync grid after template
   rebuildGridAfterGeometry(appState);
   ball?.refresh();
 }
