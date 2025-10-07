@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { dispose } from './utils.js';
 import CubeMarker from './character.js';
+import Terrain from '../vendor/THREE.Terrain.mjs';
 
 const SUBDIVISIONS = 4; // segments per big tile
 
@@ -208,4 +209,67 @@ export function createTerrain(appState) {
     tileI: Math.floor(TILES_X / 3),
     tileJ: Math.floor(TILES_Y / 3),
     size:  cubeSize,
-    color: 
+    color: 0xff2b2b,
+    hover: 0
+  });
+}
+
+// ---------- editing ops (used by UI) ----------
+export function randomizeTerrain(appState) {
+  const { terrainMesh, config } = appState;
+  if (!terrainMesh) return;
+
+  const { MIN_H, MAX_H, TILE_SIZE } = config;
+  const pos = terrainMesh.geometry.attributes.position;
+  const arr = pos.array;
+
+  const jitter = TILE_SIZE * 0.25; // gentle
+  for (let i = 1; i < arr.length; i += 3) {
+    const y = arr[i] + (Math.random() * 2 - 1) * jitter;
+    arr[i] = THREE.MathUtils.clamp(y, MIN_H, MAX_H);
+  }
+  pos.needsUpdate = true;
+  terrainMesh.geometry.computeVertexNormals();
+  rebuildGridAfterGeometry(appState);
+  appState.ball?.refresh();
+}
+
+export function applyHeightmapTemplate(templateName, appState) {
+  const { terrainMesh, config } = appState;
+  if (!terrainMesh) return;
+
+  const { MIN_H, MAX_H, TILES_X, TILES_Y, TILE_SIZE } = config;
+  const widthSegments  = TILES_X * SUBDIVISIONS;
+  const heightSegments = TILES_Y * SUBDIVISIONS;
+  const W = TILES_X * TILE_SIZE;
+  const H = TILES_Y * TILE_SIZE;
+
+  // Build a temporary terrain using the helper module, then copy Y values.
+  const t = new Terrain({
+    three: THREE,
+    heightmap: templateName, // 'Perlin' | 'Simplex' | 'Fault' | etc.
+    frequency: 2.5,
+    minHeight: MIN_H,
+    maxHeight: MAX_H,
+    xSegments: widthSegments,
+    ySegments: heightSegments,
+    xSize: W,
+    ySize: H,
+    steps: 1,
+    easing: Terrain.Linear,
+  });
+
+  const src = t.getMesh().geometry.attributes.position.array;
+  const dst = terrainMesh.geometry.attributes.position.array;
+
+  // Copy only the Y components (every 3rd starting at index 1)
+  for (let i = 1; i < dst.length && i < src.length; i += 3) {
+    dst[i] = src[i];
+  }
+
+  terrainMesh.geometry.attributes.position.needsUpdate = true;
+  terrainMesh.geometry.computeVertexNormals();
+
+  rebuildGridAfterGeometry(appState);
+  appState.ball?.refresh();
+}
