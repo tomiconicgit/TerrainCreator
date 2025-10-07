@@ -131,76 +131,28 @@
       <!-- Textures -->
       <div class="tabcontent" id="tab-textures">
         <div class="section">
-          <div class="tex-grid">
-            <!-- 1) ACTIVE TEST: SAND -->
-            <div class="tex-card">
-              <div class="thumb">
+          <div class="texgrid">
+            <!-- Slot 1: Sand -->
+            <div class="texslot">
+              <div class="teximg">
                 <img src="assets/textures/sand/sand-diffuse.jpg" alt="Sand preview" />
               </div>
-              <div class="meta">
-                <div class="name">Sand</div>
-                <button class="btn tex-select" data-tex="sand" aria-pressed="false">Use</button>
+              <div class="row row-split">
+                <label>Sand</label>
+                <button id="tx-sand-btn" class="btn">Use</button>
               </div>
             </div>
 
-            <!-- 2..8 placeholders -->
-            <div class="tex-card">
-              <div class="thumb placeholder"></div>
-              <div class="meta">
-                <div class="name">Texture 2</div>
-                <button class="btn" disabled>Coming soon</button>
-              </div>
-            </div>
-
-            <div class="tex-card">
-              <div class="thumb placeholder"></div>
-              <div class="meta">
-                <div class="name">Texture 3</div>
-                <button class="btn" disabled>Coming soon</button>
-              </div>
-            </div>
-
-            <div class="tex-card">
-              <div class="thumb placeholder"></div>
-              <div class="meta">
-                <div class="name">Texture 4</div>
-                <button class="btn" disabled>Coming soon</button>
-              </div>
-            </div>
-
-            <div class="tex-card">
-              <div class="thumb placeholder"></div>
-              <div class="meta">
-                <div class="name">Texture 5</div>
-                <button class="btn" disabled>Coming soon</button>
-              </div>
-            </div>
-
-            <div class="tex-card">
-              <div class="thumb placeholder"></div>
-              <div class="meta">
-                <div class="name">Texture 6</div>
-                <button class="btn" disabled>Coming soon</button>
-              </div>
-            </div>
-
-            <div class="tex-card">
-              <div class="thumb placeholder"></div>
-              <div class="meta">
-                <div class="name">Texture 7</div>
-                <button class="btn" disabled>Coming soon</button>
-              </div>
-            </div>
-
-            <div class="tex-card">
-              <div class="thumb placeholder"></div>
-              <div class="meta">
-                <div class="name">Texture 8</div>
-                <button class="btn" disabled>Coming soon</button>
-              </div>
-            </div>
-
+            <!-- 7 placeholders -->
+            <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 2</label><span class="pill muted">Coming soon</span></div></div>
+            <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 3</label><span class="pill muted">Coming soon</span></div></div>
+            <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 4</label><span class="pill muted">Coming soon</span></div></div>
+            <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 5</label><span class="pill muted">Coming soon</span></div></div>
+            <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 6</label><span class="pill muted">Coming soon</span></div></div>
+            <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 7</label><span class="pill muted">Coming soon</span></div></div>
+            <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 8</label><span class="pill muted">Coming soon</span></div></div>
           </div>
+          <p class="hint">Tap “Use”, then tap a tile on the terrain to paint it. Tap “Active” again to exit.</p>
         </div>
       </div>
 
@@ -213,5 +165,30 @@
       </div>
     </div>
   </div>
+
+  <style>
+    /* tiny, local helpers for the textures grid */
+    .pill{ display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:#2a2f36; color:#e9eef5; border:1px solid rgba(255,255,255,.16); font-weight:800; }
+    .pill.muted{ opacity:.6; }
+    .texgrid{
+      display:grid; gap:12px;
+      grid-template-columns: 1fr 1fr;
+    }
+    @media (max-width:520px){ .texgrid{ grid-template-columns: 1fr; } }
+    .texslot{
+      background:rgba(255,255,255,.02);
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:10px; padding:10px;
+    }
+    .teximg{
+      height:150px; border-radius:8px; overflow:hidden; margin-bottom:8px;
+      background:#1b1f24; display:grid; place-items:center;
+    }
+    .teximg.placeholder::after{
+      content:'Preview'; opacity:.35; font-weight:800;
+    }
+    .teximg img{ width:100%; height:100%; object-fit:cover; display:block; }
+    #tx-sand-btn.on{ box-shadow: inset 0 0 0 2px #00000022; }
+  </style>
 </body>
 </html>
