@@ -3,10 +3,12 @@ import * as THREE from 'three';
 import { showErrorOverlay } from './utils.js';
 import { initCamera, updateCameraBounds } from './camera.js';
 import { initLighting } from './lighting.js';
-import { createTerrain, setMainGridVisible } from './terrain.js'; // <-- add setMainGridVisible
+import { createTerrain, setMainGridVisible } from './terrain.js';
 import { initSculpting, initTapToMove } from './sculpt.js';
 import { initUI, getUiState } from './ui.js';
 import initNavLock from './navlock.js';
+import { createTestSphere } from './testSphere.js';
+import { initTextureTest } from './textureTest.js';
 
 async function startApp() {
   console.log('THREE revision:', THREE.REVISION);
@@ -17,6 +19,7 @@ async function startApp() {
     terrainGroup: null, terrainMesh: null, terrainMaterial: null,
     treesGroup: null, ball: null,
     gridLines: null,
+    testSphere: null, // <-- demo sphere
     camFollowEnabled: true,
     config: {
       TILES_X: 30, TILES_Y: 30, TILE_SIZE: 32,
@@ -58,25 +61,27 @@ async function startApp() {
   appState.dirLight = dirLight;
   appState.lightTarget = lightTarget;
 
+  // Core features
   createTerrain(appState);
   initUI(appState);
   initSculpting(appState, getUiState);
 
+  // HUD (tap-to-move + grid)
   let allowTapMove = true;
-  initTapToMove(appState, getUiState, () => allowTapMove);
+  initNavLock({ zIndex: 10000, offset: 10 });
+  window.addEventListener('tc:navlock', (e) => { allowTapMove = !(e?.detail?.paused); });
+  window.addEventListener('tc:gridtoggle', (e) => { setMainGridVisible(appState, !!e?.detail?.on); });
 
-  try {
-    initNavLock({ zIndex: 10000, offset: 10 });
-    window.addEventListener('tc:navlock', (e) => { allowTapMove = !(e?.detail?.paused); });
-    window.addEventListener('tc:gridtoggle', (e) => { setMainGridVisible(appState, !!e?.detail?.on); });
-  } catch (_) {}
+  // Test sphere + texture-paint test mode (kept out of main.js)
+  appState.testSphere = createTestSphere(appState);
+  const painting = initTextureTest(appState); // returns { isActive() }
+
+  // Tap-to-move is disabled during paint selection
+  initTapToMove(appState, getUiState, () => allowTapMove && !painting.isActive());
 
   sizeRendererToHost();
   updateCameraBounds(appState);
-  window.addEventListener('resize', () => {
-    sizeRendererToHost();
-    updateCameraBounds(appState);
-  });
+  window.addEventListener('resize', () => { sizeRendererToHost(); updateCameraBounds(appState); });
 
   renderer.setAnimationLoop(() => {
     if (appState.camFollowEnabled && appState.ball?.mesh) {
