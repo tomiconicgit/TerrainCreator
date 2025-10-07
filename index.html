@@ -1,57 +1,227 @@
-<!-- Textures -->
-<div class="tabcontent" id="tab-textures">
-  <div class="section">
-    <div class="texgrid">
-      <!-- Slot 1: Sand -->
-      <div class="texslot">
-        <div class="teximg">
-          <img src="assets/textures/sand/sand-diffuse.jpg" alt="Sand preview" />
-        </div>
-        <div class="row row-split">
-          <label>Sand</label>
-          <button id="tx-sand-btn" class="btn">Use</button>
-        </div>
-      </div>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#101318" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>TerrainCreator</title>
 
-      <!-- Slot 2: Dry ground -->
-      <div class="texslot">
-        <div class="teximg">
-          <img src="assets/textures/dryground/dryground-diffuse.jpg" alt="Dry ground preview" />
-        </div>
-        <div class="row row-split">
-          <label>Dry ground</label>
-          <button id="tx-dryground-btn" class="btn">Use</button>
-        </div>
-      </div>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./assets/icons/icon-512.png">
+  <link rel="stylesheet" href="./styles/app.css">
 
-      <!-- Slot 3: Sandstone -->
-      <div class="texslot">
-        <div class="teximg">
-          <img src="assets/textures/sandstone/sandstone-diffuse.jpg" alt="Sandstone preview" />
-        </div>
-        <div class="row row-split">
-          <label>Sandstone</label>
-          <button id="tx-sandstone-btn" class="btn">Use</button>
-        </div>
-      </div>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
 
-      <!-- Slot 4: Coast sand -->
-      <div class="texslot">
-        <div class="teximg">
-          <img src="assets/textures/coastsand/coastsand-diffuse.jpg" alt="Coast sand preview" />
-        </div>
-        <div class="row row-split">
-          <label>Coast sand</label>
-          <button id="tx-coastsand-btn" class="btn">Use</button>
-        </div>
-      </div>
-
-      <!-- keep the remaining placeholders -->
-      <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 5</label><span class="pill muted">Coming soon</span></div></div>
-      <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 6</label><span class="pill muted">Coming soon</span></div></div>
-      <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 7</label><span class="pill muted">Coming soon</span></div></div>
-      <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 8</label><span class="pill muted">Coming soon</span></div></div>
+  <script type="module" src="./bootstrap.js"></script>
+</head>
+<body>
+  <div id="app">
+    <div id="sceneHost" aria-label="Scene area">
+      <canvas id="c"></canvas>
     </div>
-    <p class="hint">Tap “Use”, then tap a tile on the terrain to paint it. Tap “Active” again to exit.</p>
+
+    <div id="panel" class="card" aria-label="Control panel">
+      <div class="tabs">
+        <button class="tab on" data-tab="terrain">Terrain</button>
+        <button class="tab" data-tab="sculpt">Sculpt</button>
+        <button class="tab" data-tab="objects">Objects</button>
+        <button class="tab" data-tab="textures">Textures</button>
+        <button class="tab" data-tab="settings">Settings</button>
+      </div>
+
+      <!-- Terrain -->
+      <div class="tabcontent on" id="tab-terrain">
+        <div class="section">
+          <div class="row row-split">
+            <label>Terrain Size (Tiles)</label>
+            <div class="input-pair">
+              <input id="tilesX" type="number" min="2" max="256" step="1" value="30" inputmode="numeric">
+              <span class="times">x</span>
+              <input id="tilesY" type="number" min="2" max="256" step="1" value="30" inputmode="numeric">
+            </div>
+          </div>
+
+          <div class="grid grid-2">
+            <button id="genTerrain" class="btn primary">Generate</button>
+            <button id="randomize" class="btn">Random jitter</button>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="row row-split">
+            <label for="template">Heightmap template</label>
+            <div class="input-pair">
+              <select id="template">
+                <option value="Flat">Flat</option>
+                <option value="DiamondSquare">DiamondSquare</option>
+                <option value="Perlin" selected>Perlin</option>
+                <option value="Simplex">Simplex</option>
+                <option value="Fault">Fault</option>
+                <option value="Cosine">Cosine</option>
+                <option value="Value">Value</option>
+                <option value="Worley">Worley</option>
+              </select>
+              <button id="applyTemplate" class="btn">Apply</button>
+            </div>
+          </div>
+
+          <div class="row row-split">
+            <label>Tree Population (Scatter)</label>
+            <div class="input-pair">
+              <input id="treeCount" type="number" min="0" max="100000" step="1" value="200" inputmode="numeric">
+              <button id="applyTrees" class="btn">Populate</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sculpt -->
+      <div class="tabcontent" id="tab-sculpt">
+        <div class="section">
+          <div class="row">
+            <label for="sculptOn">Enable sculpt</label>
+            <label class="switch">
+              <input id="sculptOn" type="checkbox">
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="row row-split">
+            <label>Height step</label>
+            <div class="spinner">
+              <button id="stepDown" aria-label="step down" class="btn">-</button>
+              <input id="stepInput" type="number" step="0.2" min="-2" max="2" value="0.2" inputmode="decimal">
+              <button id="stepUp" aria-label="step up" class="btn">+</button>
+            </div>
+          </div>
+
+          <div class="row row-split">
+            <label>Radius (tiles)</label>
+            <div class="spinner">
+              <button id="radiusDown" aria-label="radius down" class="btn">-</button>
+              <input id="radiusInput" type="number" step="1" min="1" max="6" value="2" inputmode="numeric">
+              <button id="radiusUp" aria-label="radius up" class="btn">+</button>
+            </div>
+          </div>
+
+          <div class="grid grid-3">
+            <button id="modeRaise" class="btn toggle on">Raise</button>
+            <button id="modeLower" class="btn toggle">Lower</button>
+            <button id="modeSmooth" class="btn toggle">Smooth</button>
+          </div>
+          <p class="hint">When sculpting is ON, the camera is frozen.</p>
+        </div>
+      </div>
+
+      <!-- Objects -->
+      <div class="tabcontent" id="tab-objects">
+        <div class="section muted">Objects tab coming soon.</div>
+      </div>
+
+      <!-- Textures -->
+      <div class="tabcontent" id="tab-textures">
+        <div class="section">
+          <div class="texgrid">
+            <!-- Slot 1: Sand -->
+            <div class="texslot">
+              <div class="teximg">
+                <img src="assets/textures/sand/sand-diffuse.jpg" alt="Sand preview" />
+              </div>
+              <div class="row row-split">
+                <label>Sand</label>
+                <button id="tx-sand-btn" class="btn">Use</button>
+              </div>
+            </div>
+
+            <!-- Slot 2: Dry ground -->
+            <div class="texslot">
+              <div class="teximg">
+                <img src="assets/textures/dryground/dryground-diffuse.jpg" alt="Dry ground preview" />
+              </div>
+              <div class="row row-split">
+                <label>Dry ground</label>
+                <button id="tx-dryground-btn" class="btn">Use</button>
+              </div>
+            </div>
+
+            <!-- Slot 3: Sandstone -->
+            <div class="texslot">
+              <div class="teximg">
+                <img src="assets/textures/sandstone/sandstone-diffuse.jpg" alt="Sandstone preview" />
+              </div>
+              <div class="row row-split">
+                <label>Sandstone</label>
+                <button id="tx-sandstone-btn" class="btn">Use</button>
+              </div>
+            </div>
+
+            <!-- Slot 4: Coast sand -->
+            <div class="texslot">
+              <div class="teximg">
+                <img src="assets/textures/coastsand/coastsand-diffuse.jpg" alt="Coast sand preview" />
+              </div>
+              <div class="row row-split">
+                <label>Coast sand</label>
+                <button id="tx-coastsand-btn" class="btn">Use</button>
+              </div>
+            </div>
+
+            <!-- Remaining placeholders -->
+            <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 5</label><span class="pill muted">Coming soon</span></div></div>
+            <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 6</label><span class="pill muted">Coming soon</span></div></div>
+            <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 7</label><span class="pill muted">Coming soon</span></div></div>
+            <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 8</label><span class="pill muted">Coming soon</span></div></div>
+          </div>
+          <p class="hint">Tap "Use", then tap a tile on the terrain to paint it. Tap "Active" again to exit.</p>
+        </div>
+      </div>
+
+      <!-- Settings -->
+      <div class="tabcontent" id="tab-settings">
+        <div class="section">
+          <button id="installBtn" class="btn primary">Install App</button>
+        </div>
+        <div class="section muted">Settings tab coming soon.</div>
+      </div>
+    </div>
   </div>
-</div>
+
+  <style>
+    /* tiny, local helpers for the textures grid */
+    .pill{ display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:#2a2f36; color:#e9eef5; border:1px solid rgba(255,255,255,.16); font-weight:800; }
+    .pill.muted{ opacity:.6; }
+    .texgrid{
+      display:grid; gap:12px;
+      grid-template-columns: 1fr 1fr;
+    }
+    @media (max-width:520px){ .texgrid{ grid-template-columns: 1fr; } }
+    .texslot{
+      background:rgba(255,255,255,.02);
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:10px; padding:10px;
+    }
+    .teximg{
+      height:150px; border-radius:8px; overflow:hidden; margin-bottom:8px;
+      background:#1b1f24; display:grid; place-items:center;
+    }
+    .teximg.placeholder::after{
+      content:'Preview'; opacity:.35; font-weight:800;
+    }
+    .teximg img{ width:100%; height:100%; object-fit:cover; display:block; }
+    #tx-sand-btn.on,
+    #tx-dryground-btn.on,
+    #tx-sandstone-btn.on,
+    #tx-coastsand-btn.on{ box-shadow: inset 0 0 0 2px #00000022; }
+  </style>
+</body>
+</html>
