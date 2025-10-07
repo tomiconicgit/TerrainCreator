@@ -84,17 +84,39 @@ export function initUI(appState) {
   modeSmooth.addEventListener('click', () => setMode('smooth'));
 
   // --- Textures tab --------------------------------------------------------
-  // Sand slot toggle: Use <-> Active
-  const sandBtn = document.getElementById('tx-sand-btn');
-  if (sandBtn){
-    sandBtn.addEventListener('click', () => {
-      const isActive = sandBtn.classList.toggle('on');
-      sandBtn.textContent = isActive ? 'Active' : 'Use';
-      try {
-        window.dispatchEvent(new CustomEvent(isActive ? 'tc:texture-activate' : 'tc:texture-deactivate', {
-          detail: { key: 'sand' }
-        }));
-      } catch(_) {}
+  const texButtons = {
+    sand: document.getElementById('tx-sand-btn'),
+    dryground: document.getElementById('tx-dryground-btn'),
+    sandstone: document.getElementById('tx-sandstone-btn'),
+    coastsand: document.getElementById('tx-coastsand-btn'),
+  };
+
+  function setActiveTexture(keyOrNull){
+    const keys = Object.keys(texButtons);
+    const activeKey = keyOrNull && keys.includes(keyOrNull) ? keyOrNull : null;
+
+    keys.forEach(k => {
+      const b = texButtons[k];
+      if (!b) return;
+      const on = (k === activeKey);
+      b.classList.toggle('on', on);
+      b.textContent = on ? 'Active' : 'Use';
     });
+
+    try {
+      if (activeKey) {
+        window.dispatchEvent(new CustomEvent('tc:texture-activate', { detail: { key: activeKey } }));
+      } else {
+        window.dispatchEvent(new CustomEvent('tc:texture-deactivate'));
+      }
+    } catch(_) {}
   }
+
+  Object.entries(texButtons).forEach(([key, btn]) => {
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      const makeActive = !btn.classList.contains('on');
+      setActiveTexture(makeActive ? key : null);
+    });
+  });
 }
