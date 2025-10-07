@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { showErrorOverlay } from './utils.js';
 import { initCamera, updateCameraBounds } from './camera.js';
 import { initLighting } from './lighting.js';
-import { createTerrain } from './terrain.js';
+import { createTerrain, setMainGridVisible } from './terrain.js'; // <-- add setMainGridVisible
 import { initSculpting, initTapToMove } from './sculpt.js';
 import { initUI, getUiState } from './ui.js';
 import initNavLock from './navlock.js';
@@ -35,7 +35,6 @@ async function startApp() {
   renderer.shadowMap.enabled = true;
   appState.renderer = renderer;
 
-  // size to host (NOT window)
   const sizeRendererToHost = () => {
     const rect = sceneHost.getBoundingClientRect();
     const w = Math.max(1, Math.floor(rect.width));
@@ -59,7 +58,6 @@ async function startApp() {
   appState.dirLight = dirLight;
   appState.lightTarget = lightTarget;
 
-  // build terrain & UI
   createTerrain(appState);
   initUI(appState);
   initSculpting(appState, getUiState);
@@ -70,9 +68,9 @@ async function startApp() {
   try {
     initNavLock({ zIndex: 10000, offset: 10 });
     window.addEventListener('tc:navlock', (e) => { allowTapMove = !(e?.detail?.paused); });
+    window.addEventListener('tc:gridtoggle', (e) => { setMainGridVisible(appState, !!e?.detail?.on); });
   } catch (_) {}
 
-  // initial size + on resize
   sizeRendererToHost();
   updateCameraBounds(appState);
   window.addEventListener('resize', () => {
@@ -89,7 +87,6 @@ async function startApp() {
   });
 }
 
-// Error overlay + boot
 window.addEventListener('error', (e) => showErrorOverlay('Window error', e.error || e));
 window.addEventListener('unhandledrejection', (e) => showErrorOverlay('Unhandled promise rejection', e.reason));
 (async () => {
