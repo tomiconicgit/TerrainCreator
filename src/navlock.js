@@ -1,5 +1,5 @@
 // file: src/navlock.js
-// Floating studio HUD: Tap-to-move + Grid Outlines switches
+// Minimal floating HUD: Tap-to-move + Grid Outlines switches (no container card)
 // Emits:
 //   - 'tc:navlock'   { paused: boolean }
 //   - 'tc:gridtoggle'{ on: boolean }
@@ -12,48 +12,30 @@ export function initNavLock(opts = {}) {
   let paused = false;
   let gridOn = true;
 
-  // UI
+  // UI (no card/container; just two switches)
   const box = document.createElement('div');
   box.id = 'tc-navlock';
   box.innerHTML = `
-    <div class="bar">
-      <div class="brand">
-        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-          <path fill="currentColor" d="M3 18l5-9 4 5 3-6 6 10" />
-        </svg>
-        <span class="name">Studio HUD</span>
-      </div>
+    <div class="hud">
+      <label class="minitoggle" title="Tap-to-move">
+        <input type="checkbox" id="tc-navlock-toggle" aria-label="Tap to move"/>
+        <span class="slider"></span>
+        <span class="txt">Tap-to-move</span>
+      </label>
 
-      <div class="controls">
-        <div class="ctrl">
-          <span class="label">Tap-to-move</span>
-          <label class="switch">
-            <input type="checkbox" id="tc-navlock-toggle"/>
-            <span class="slider"></span>
-          </label>
-        </div>
-
-        <div class="sep"></div>
-
-        <div class="ctrl">
-          <span class="label">Grid Outlines</span>
-          <label class="switch">
-            <input type="checkbox" id="tc-grid-toggle" checked/>
-            <span class="slider"></span>
-          </label>
-        </div>
-      </div>
+      <label class="minitoggle" title="Grid Outlines">
+        <input type="checkbox" id="tc-grid-toggle" checked aria-label="Grid outlines"/>
+        <span class="slider"></span>
+        <span class="txt">Grid Outlines</span>
+      </label>
     </div>
   `;
 
   const css = document.createElement('style');
   css.textContent = `
     :root{
-      --hud-bg: rgba(22,24,28,0.65);
-      --hud-stroke: rgba(255,255,255,0.10);
       --hud-text:#e9eef5;
       --hud-muted:#9fb0c4;
-      --shadow: 0 10px 30px rgba(0,0,0,0.35);
     }
     #tc-navlock, #tc-navlock * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     #tc-navlock {
@@ -64,40 +46,45 @@ export function initNavLock(opts = {}) {
       color: var(--hud-text);
       user-select: none; pointer-events: auto;
     }
-    #tc-navlock .bar{
-      display:flex; align-items:center; gap:12px;
-      padding:10px 12px;
-      background: var(--hud-bg);
-      border:1px solid var(--hud-stroke);
-      backdrop-filter: blur(14px) saturate(1.1);
-      border-radius: 12px;
-      box-shadow: var(--shadow);
-    }
-    #tc-navlock .brand{
-      display:flex; align-items:center; gap:6px; color:#cbe0ff;
-      filter: drop-shadow(0 1px 6px rgba(120,177,255,0.25));
-      margin-right:6px;
-    }
-    #tc-navlock .brand .name{ font-size:12px; font-weight:800; letter-spacing:.2px; color: var(--hud-text); }
 
-    #tc-navlock .controls{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-    #tc-navlock .ctrl{ display:flex; align-items:center; gap:8px; }
-    #tc-navlock .label{ color:var(--hud-muted); font: 600 12px/1 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; white-space:nowrap; }
-    #tc-navlock .sep{ width:1px; height:20px; background: var(--hud-stroke); }
+    /* Row of bare switches (no background, no border, no brand) */
+    #tc-navlock .hud{
+      display:flex; align-items:center; gap:10px;
+      padding:0; margin:0; background:transparent; border:0; box-shadow:none;
+    }
+
+    /* Each switch+label — lightweight, no chip on mobile */
+    #tc-navlock .minitoggle{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:0; margin:0; background:transparent; border:0;
+      font: 600 12px/1 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      color: var(--hud-muted);
+    }
+    #tc-navlock .minitoggle .txt{ white-space:nowrap; }
 
     /* Switch */
-    #tc-navlock .switch{ position:relative; display:inline-block; width:48px; height:26px; }
-    #tc-navlock .switch input{ display:none; }
+    #tc-navlock .minitoggle .switch{ display:none; } /* legacy; not used */
     #tc-navlock .slider{
-      position:absolute; inset:0; border-radius:999px;
-      background:#2e353d; transition:.18s; border:1px solid rgba(255,255,255,0.12);
+      position:relative; display:inline-block; width:48px; height:26px;
+      border-radius:999px; background:#2e353d; border:1px solid rgba(255,255,255,0.12); transition:.18s;
     }
+    #tc-navlock input{ display:none; }
     #tc-navlock .slider:before{
       content:""; position:absolute; width:20px; height:20px; left:3px; top:3px;
       background:#fff; border-radius:50%; transition:.18s; box-shadow:0 1px 2px rgba(0,0,0,.35);
     }
-    #tc-navlock .switch input:checked + .slider{ background:#3a3f45; }
-    #tc-navlock .switch input:checked + .slider:before{ transform:translateX(22px); }
+    #tc-navlock input:checked + .slider{ background:#3a3f45; }
+    #tc-navlock input:checked + .slider:before{ transform:translateX(22px); }
+
+    /* Mobile: hide text labels & shrink the switch footprint */
+    @media (max-width: 480px){
+      #tc-navlock { left: 6px; top: calc(6px + env(safe-area-inset-top)); }
+      #tc-navlock .hud{ gap:8px; }
+      #tc-navlock .minitoggle .txt{ display:none; }
+      #tc-navlock .slider{ width:40px; height:24px; }
+      #tc-navlock .slider:before{ width:18px; height:18px; }
+      #tc-navlock input:checked + .slider:before{ transform:translateX(16px); }
+    }
   `;
   document.head.appendChild(css);
   document.body.appendChild(box);
