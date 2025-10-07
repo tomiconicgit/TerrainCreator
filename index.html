@@ -39,6 +39,7 @@
         <button class="tab" data-tab="settings">Settings</button>
       </div>
 
+      <!-- Terrain -->
       <div class="tabcontent on" id="tab-terrain">
         <div class="section">
           <div class="row row-split">
@@ -84,6 +85,7 @@
         </div>
       </div>
 
+      <!-- Sculpt -->
       <div class="tabcontent" id="tab-sculpt">
         <div class="section">
           <div class="row">
@@ -121,51 +123,88 @@
         </div>
       </div>
 
+      <!-- Objects -->
       <div class="tabcontent" id="tab-objects">
         <div class="section muted">Objects tab coming soon.</div>
       </div>
 
-      <!-- NEW: Textures panel -->
+      <!-- Textures -->
       <div class="tabcontent" id="tab-textures">
         <div class="section">
-          <div class="texture-grid">
-            <div class="tex-slot">
-              <div class="tex-thumb" id="texThumb1" aria-label="Texture 1 placeholder"></div>
-              <button class="btn small" data-tex="1">Select</button>
+          <div class="tex-grid">
+            <!-- 1) ACTIVE TEST: SAND -->
+            <div class="tex-card">
+              <div class="thumb">
+                <img src="assets/textures/sand/sand-diffuse.jpg" alt="Sand preview" />
+              </div>
+              <div class="meta">
+                <div class="name">Sand</div>
+                <button class="btn tex-select" data-tex="sand" aria-pressed="false">Use</button>
+              </div>
             </div>
-            <div class="tex-slot">
-              <div class="tex-thumb" id="texThumb2" aria-label="Texture 2 placeholder"></div>
-              <button class="btn small" data-tex="2">Select</button>
+
+            <!-- 2..8 placeholders -->
+            <div class="tex-card">
+              <div class="thumb placeholder"></div>
+              <div class="meta">
+                <div class="name">Texture 2</div>
+                <button class="btn" disabled>Coming soon</button>
+              </div>
             </div>
-            <div class="tex-slot">
-              <div class="tex-thumb" id="texThumb3" aria-label="Texture 3 placeholder"></div>
-              <button class="btn small" data-tex="3">Select</button>
+
+            <div class="tex-card">
+              <div class="thumb placeholder"></div>
+              <div class="meta">
+                <div class="name">Texture 3</div>
+                <button class="btn" disabled>Coming soon</button>
+              </div>
             </div>
-            <div class="tex-slot">
-              <div class="tex-thumb" id="texThumb4" aria-label="Texture 4 placeholder"></div>
-              <button class="btn small" data-tex="4">Select</button>
+
+            <div class="tex-card">
+              <div class="thumb placeholder"></div>
+              <div class="meta">
+                <div class="name">Texture 4</div>
+                <button class="btn" disabled>Coming soon</button>
+              </div>
             </div>
-            <div class="tex-slot">
-              <div class="tex-thumb" id="texThumb5" aria-label="Texture 5 placeholder"></div>
-              <button class="btn small" data-tex="5">Select</button>
+
+            <div class="tex-card">
+              <div class="thumb placeholder"></div>
+              <div class="meta">
+                <div class="name">Texture 5</div>
+                <button class="btn" disabled>Coming soon</button>
+              </div>
             </div>
-            <div class="tex-slot">
-              <div class="tex-thumb" id="texThumb6" aria-label="Texture 6 placeholder"></div>
-              <button class="btn small" data-tex="6">Select</button>
+
+            <div class="tex-card">
+              <div class="thumb placeholder"></div>
+              <div class="meta">
+                <div class="name">Texture 6</div>
+                <button class="btn" disabled>Coming soon</button>
+              </div>
             </div>
-            <div class="tex-slot">
-              <div class="tex-thumb" id="texThumb7" aria-label="Texture 7 placeholder"></div>
-              <button class="btn small" data-tex="7">Select</button>
+
+            <div class="tex-card">
+              <div class="thumb placeholder"></div>
+              <div class="meta">
+                <div class="name">Texture 7</div>
+                <button class="btn" disabled>Coming soon</button>
+              </div>
             </div>
-            <div class="tex-slot">
-              <div class="tex-thumb" id="texThumb8" aria-label="Texture 8 placeholder"></div>
-              <button class="btn small" data-tex="8">Select</button>
+
+            <div class="tex-card">
+              <div class="thumb placeholder"></div>
+              <div class="meta">
+                <div class="name">Texture 8</div>
+                <button class="btn" disabled>Coming soon</button>
+              </div>
             </div>
+
           </div>
-          <p class="hint">Placeholders for now — buttons log to console.</p>
         </div>
       </div>
 
+      <!-- Settings -->
       <div class="tabcontent" id="tab-settings">
         <div class="section">
           <button id="installBtn" class="btn primary">Install App</button>
