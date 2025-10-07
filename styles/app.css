@@ -192,29 +192,33 @@ button:focus-visible, .btn:focus-visible, input:focus-visible, select:focus-visi
 #tc-bootstrap{ background:var(--bg-0)!important; color:var(--text)!important; }
 #tc-bootstrap .btn{ font-weight:800; }
 
-/* --- Textures panel --- */
-.texture-grid{
+/* ===== TEXTURES GRID ==================================================== */
+.tex-grid{
   display:grid;
-  grid-template-columns: 1fr 1fr; /* 2 side-by-side */
+  grid-template-columns: 1fr 1fr; /* 2 side-by-side, 4 rows */
   gap:10px;
 }
-.tex-slot{
-  display:flex; flex-direction:column; gap:8px; min-width:0;
+@media (max-width:420px){
+  .tex-grid{ grid-template-columns: 1fr; } /* prevent overflow on small screens */
 }
-.tex-thumb{
-  width:100%;
-  aspect-ratio: 1 / 1;                 /* square preview */
-  border-radius:10px;
+.tex-card{
+  display:flex; flex-direction:column; gap:8px;
+  background: var(--ctrl-bg);
   border:1px solid var(--panel-stroke);
+  border-radius:10px; padding:8px;
+}
+.tex-card .thumb{
+  width:100%; aspect-ratio: 16 / 9; border-radius:6px; overflow:hidden;
+  background:#20252c;
+  display:grid; place-items:center;
+}
+.tex-card .thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+.tex-card .thumb.placeholder{
   background:
-    linear-gradient(135deg, rgba(255,255,255,.06), rgba(0,0,0,0)) ,
-    repeating-linear-gradient(45deg, #2b3036 0 10px, #232a31 10px 20px); /* subtle checker */
-  background-blend-mode: screen;
+    linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
 }
-.btn.small{
-  height:30px; padding:6px 10px;
-  font-size:var(--font-small); border-radius:8px;
+.tex-card .meta{
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
 }
-@media (max-width:360px){
-  .btn.small{ height:32px; }
-}
+.tex-card .name{ font-weight:800; color:var(--text); }
+.tex-card .btn.on{ box-shadow: inset 0 0 0 2px #00000022; }
