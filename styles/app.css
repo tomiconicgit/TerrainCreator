@@ -191,3 +191,30 @@ button:focus-visible, .btn:focus-visible, input:focus-visible, select:focus-visi
 /* Harmony with launcher (optional) */
 #tc-bootstrap{ background:var(--bg-0)!important; color:var(--text)!important; }
 #tc-bootstrap .btn{ font-weight:800; }
+
+/* --- Textures panel --- */
+.texture-grid{
+  display:grid;
+  grid-template-columns: 1fr 1fr; /* 2 side-by-side */
+  gap:10px;
+}
+.tex-slot{
+  display:flex; flex-direction:column; gap:8px; min-width:0;
+}
+.tex-thumb{
+  width:100%;
+  aspect-ratio: 1 / 1;                 /* square preview */
+  border-radius:10px;
+  border:1px solid var(--panel-stroke);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.06), rgba(0,0,0,0)) ,
+    repeating-linear-gradient(45deg, #2b3036 0 10px, #232a31 10px 20px); /* subtle checker */
+  background-blend-mode: screen;
+}
+.btn.small{
+  height:30px; padding:6px 10px;
+  font-size:var(--font-small); border-radius:8px;
+}
+@media (max-width:360px){
+  .btn.small{ height:32px; }
+}
