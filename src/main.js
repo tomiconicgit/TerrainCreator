@@ -83,10 +83,11 @@ async function startApp() {
 
   // UI -> painter wiring (textures tab)
   window.addEventListener('tc:texture-activate', (e) => {
-    if (e?.detail?.key === 'sand') painter.setActive('sand');
+    const key = e?.detail?.key;
+    if (key) appState.painter.setActive(key);
   });
   window.addEventListener('tc:texture-deactivate', () => {
-    painter.setActive(null);
+    appState.painter.setActive(null);
   });
 
   // When terrain is rebuilt from the UI, reattach the mask + shader hook
