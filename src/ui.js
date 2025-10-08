@@ -84,7 +84,7 @@ export function initUI(appState) {
   modeSmooth.addEventListener('click', () => setMode('smooth'));
 
   // --- Textures tab --------------------------------------------------------
-  // Toggle buttons: Single-selection “Use/Active” across 4 textures.
+  // Single-select “Use/Active” buttons across 4 textures.
   const buttons = [
     { id: 'tx-sand-btn',  key: 'sand' },
     { id: 'tx-dry-btn',   key: 'dryground' },
@@ -113,7 +113,6 @@ export function initUI(appState) {
     if (!btn) return;
     btn.addEventListener('click', () => {
       const willActivate = !btn.classList.contains('on');
-      // single-select
       deactivateAll();
       if (willActivate) {
         setBtnState(btn, true);
@@ -121,6 +120,17 @@ export function initUI(appState) {
       }
     });
   }
-
   buttons.forEach(({ id, key }) => wireTexBtn(id, key));
+
+  // Paint radius (tiles) input → painter
+  const brush = document.getElementById('tx-brush');
+  if (brush) {
+    const push = () => {
+      const n = Math.max(0, Math.min(200, parseInt(brush.value || '0', 10)));
+      brush.value = String(n);
+      appState.painter?.setBrushRadius(n);
+    };
+    brush.addEventListener('change', push);
+    push(); // initialize
+  }
 }
