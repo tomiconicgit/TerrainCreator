@@ -34,6 +34,8 @@ async function startApp() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  // Optional: nudge exposure slightly if desired
+  // renderer.toneMappingExposure = 1.0;
   renderer.shadowMap.enabled = true;
   appState.renderer = renderer;
 
@@ -70,6 +72,9 @@ async function startApp() {
   appState.painter = painter;
   painter.attachToTerrain();
 
+  // Set default: whole map = Sand (mask1=1)
+  painter.fillAll('sand');
+
   // Tap-to-move, gated by HUD/painter
   let allowTapMove = true;
   initTapToMove(appState, getUiState, () => allowTapMove);
@@ -93,6 +98,7 @@ async function startApp() {
   // When terrain is rebuilt from the UI, reattach the mask + shader hook
   window.addEventListener('tc:terrain-rebuilt', () => {
     painter.attachToTerrain();
+    // (Do not auto-fill here; keeps user’s paint on regenerate)
   });
 
   sizeRendererToHost();
