@@ -131,6 +131,13 @@
       <!-- Textures -->
       <div class="tabcontent" id="tab-textures">
         <div class="section">
+
+          <!-- New: brush radius control -->
+          <div class="row row-split">
+            <label>Paint radius (tiles)</label>
+            <input id="tx-brush" type="number" min="0" max="200" step="1" value="0" inputmode="numeric">
+          </div>
+
           <div class="texgrid">
             <!-- Sand -->
             <div class="texslot">
@@ -182,7 +189,7 @@
             <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 7</label><span class="pill muted">Coming soon</span></div></div>
             <div class="texslot"><div class="teximg placeholder"></div><div class="row row-split"><label>Texture 8</label><span class="pill muted">Coming soon</span></div></div>
           </div>
-          <p class="hint">Tap “Use”, then tap a tile on the terrain to paint it. Tap “Active” again to exit.</p>
+          <p class="hint">Set “Paint radius (tiles)” (0 = single tile), tap <b>Use</b> to activate a texture, then tap the terrain.</p>
         </div>
       </div>
 
@@ -218,7 +225,6 @@
       content:'Preview'; opacity:.35; font-weight:800;
     }
     .teximg img{ width:100%; height:100%; object-fit:cover; display:block; }
-    /* generic “active” ring */
     .texslot .btn.on{ box-shadow: inset 0 0 0 2px #00000022; }
   </style>
 </body>
