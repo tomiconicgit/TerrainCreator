@@ -13,11 +13,11 @@ export default function initTexturePainter(appState) {
     const t = loader.load(url);
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     t.anisotropy = 8;
-    t.colorSpace = THREE.SRGBColorSpace;
+    t.colorSpace = THREE.SRGBColorSpace; // authoring color space of these JPGs
     return t;
   }
 
-  // load color textures only; normals/roughness remain on base material
+  // color maps only; normal/roughness remain on the base material
   const maps = {
     sand:      loadTex('assets/textures/sand/sand-diffuse.jpg'),
     dryground: loadTex('assets/textures/dryground/dryground-diffuse.jpg'),
@@ -25,7 +25,7 @@ export default function initTexturePainter(appState) {
     coastsand: loadTex('assets/textures/coastsand/coastsand-diffuse.jpg'),
   };
 
-  // helper: white texture to force UV path
+  // helper: white texture to force UV path if MeshStandardMaterial has no .map
   function makeWhiteTex() {
     const t = new THREE.DataTexture(new Uint8Array([255,255,255,255]),1,1);
     t.colorSpace = THREE.SRGBColorSpace;
@@ -37,9 +37,11 @@ export default function initTexturePainter(appState) {
     activeKey: null,
     maskAttrs: {},
     tilesUniform: new THREE.Vector2(1,1),
-    uvScale: 1.0
+    uvScale: 1.0,
+    brushRadius: 0, // in BIG tiles; 0 = only tapped tile
   };
 
+  // --- attributes ----------------------------------------------------------
   function _addOrResizeMaskAttributes(mesh) {
     const geom = mesh?.geometry;
     if (!geom) return;
@@ -61,13 +63,14 @@ export default function initTexturePainter(appState) {
     state.maskAttrs.coastsand = ensure('mask4');
   }
 
-  // ensures UVs exist so vUv is defined
+  // ensures <uv_vertex> path is compiled so vUv exists
   function _ensureUVs(mat){
-    if(!mat.map) mat.map = makeWhiteTex();
+    if(!mat.map) mat.map = makeWhiteTex(); // toggles USE_UV internally
     mat.defines = mat.defines || {};
     mat.defines.USE_UV = 1;
   }
 
+  // --- shader hook ---------------------------------------------------------
   function _hookMaterial(mat){
     if(!mat || mat.userData.__texPaintHooked) return;
     mat.userData.__texPaintHooked = true;
@@ -86,7 +89,7 @@ export default function initTexturePainter(appState) {
       shader.uniforms.tiles        = { value: state.tilesUniform };
       shader.uniforms.uvScale      = { value: state.uvScale };
 
-      // vertex pass masks
+      // vertex -> varyings
       shader.vertexShader = shader.vertexShader
         .replace(
           '#include <uv_pars_vertex>',
@@ -100,11 +103,12 @@ export default function initTexturePainter(appState) {
            vMask1 = mask1; vMask2 = mask2; vMask3 = mask3; vMask4 = mask4;`
         );
 
-      // fragment – inject after diffuseColor creation, like old code
+      // fragment — linearize samples so we blend in the correct color space
       shader.fragmentShader = shader.fragmentShader
         .replace(
           '#include <common>',
           `#include <common>
+           #include <encodings_pars_fragment>
            uniform sampler2D mapSand, mapDryground, mapSandstone, mapCoastsand;
            uniform vec2 tiles; uniform float uvScale;
            varying float vMask1, vMask2, vMask3, vMask4;`
@@ -114,10 +118,11 @@ export default function initTexturePainter(appState) {
           `vec4 diffuseColor = vec4( diffuse, opacity );
            vec2 tileUV = fract(vUv * tiles) * uvScale;
 
-           vec3 tex1 = texture2D(mapSand,      tileUV).rgb;
-           vec3 tex2 = texture2D(mapDryground, tileUV).rgb;
-           vec3 tex3 = texture2D(mapSandstone, tileUV).rgb;
-           vec3 tex4 = texture2D(mapCoastsand, tileUV).rgb;
+           // Convert authored sRGB texels to linear space before blending
+           vec3 tex1 = mapTexelToLinear(texture2D(mapSand,      tileUV)).rgb;
+           vec3 tex2 = mapTexelToLinear(texture2D(mapDryground, tileUV)).rgb;
+           vec3 tex3 = mapTexelToLinear(texture2D(mapSandstone, tileUV)).rgb;
+           vec3 tex4 = mapTexelToLinear(texture2D(mapCoastsand, tileUV)).rgb;
 
            float w1 = clamp(vMask1,0.0,1.0);
            float w2 = clamp(vMask2,0.0,1.0);
@@ -145,6 +150,7 @@ export default function initTexturePainter(appState) {
     if(sh) sh.uniforms.tiles.value.copy(state.tilesUniform);
   }
 
+  // --- mapping helpers -----------------------------------------------------
   function _localToTile(x,z){
     const {TILE_SIZE,TILES_X,TILES_Y} = appState.config;
     const W = TILES_X*TILE_SIZE;
@@ -158,15 +164,21 @@ export default function initTexturePainter(appState) {
     return {i,j};
   }
 
-  function _paintTile(i,j){
+  // paint a SINGLE big tile (internal)
+  function _paintTileSingle(i,j){
     const mesh = appState.terrainMesh;
     if(!mesh) return;
     const {config} = appState;
     const widthSeg = config.TILES_X*SUBDIVISIONS;
+    const heightSeg = config.TILES_Y*SUBDIVISIONS;
     const vpr = widthSeg+1;
+
+    if(i<0||j<0||i>=config.TILES_X||j>=config.TILES_Y) return;
+
     const col0=i*SUBDIVISIONS, col1=(i+1)*SUBDIVISIONS;
     const row0=j*SUBDIVISIONS, row1=(j+1)*SUBDIVISIONS;
     const keys=['sand','dryground','sandstone','coastsand'];
+
     for(let r=row0;r<=row1;r++){
       for(let c=col0;c<=col1;c++){
         const idx=r*vpr+c;
@@ -174,6 +186,16 @@ export default function initTexturePainter(appState) {
           const a=state.maskAttrs[k];
           if(a) a.array[idx]=(k===state.activeKey)?1.0:0.0;
         }
+      }
+    }
+  }
+
+  // area paint using brushRadius
+  function _paintArea(iCenter,jCenter){
+    const R = Math.max(0, state.brushRadius|0);
+    for(let j=jCenter-R; j<=jCenter+R; j++){
+      for(let i=iCenter-R; i<=iCenter+R; i++){
+        _paintTileSingle(i,j);
       }
     }
     Object.values(state.maskAttrs).forEach(a=>{if(a)a.needsUpdate=true;});
@@ -185,6 +207,17 @@ export default function initTexturePainter(appState) {
     });
   }
 
+  function _fillAll(key){
+    const keys=['sand','dryground','sandstone','coastsand'];
+    for(const k of keys){
+      const a = state.maskAttrs[k];
+      if(!a) continue;
+      a.array.fill(k===key?1:0);
+      a.needsUpdate = true;
+    }
+  }
+
+  // --- pointer -------------------------------------------------------------
   const ray = new THREE.Raycaster();
   function _onPointerDown(ev){
     if(!state.activeKey||!appState.terrainMesh)return;
@@ -196,9 +229,10 @@ export default function initTexturePainter(appState) {
     if(!hits.length)return;
     const local=appState.terrainMesh.worldToLocal(hits[0].point.clone());
     const {i,j}=_localToTile(local.x,local.z);
-    _paintTile(i,j);
+    _paintArea(i,j);
   }
 
+  // --- public --------------------------------------------------------------
   function attachToTerrain(){
     if(!appState.terrainMesh||!appState.terrainMaterial)return;
     _addOrResizeMaskAttributes(appState.terrainMesh);
@@ -213,10 +247,20 @@ export default function initTexturePainter(appState) {
     }catch(_){}
   }
 
+  function setBrushRadius(n){
+    state.brushRadius = Math.max(0, (n|0));
+  }
+
   if(!appState.__texturePainterInstalled){
     appState.renderer.domElement.addEventListener('pointerdown',_onPointerDown,{passive:true});
     appState.__texturePainterInstalled=true;
   }
 
-  return {attachToTerrain,setActive,clearAll:_clearAll};
+  return {
+    attachToTerrain,
+    setActive,
+    setBrushRadius,
+    clearAll:_clearAll,
+    fillAll:_fillAll,
+  };
 }
